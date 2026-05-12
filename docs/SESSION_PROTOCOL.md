@@ -40,7 +40,7 @@ The literal checklists every agent session follows. No skipping.
    ```
 6. Push:
    ```bash
-   git push -u origin claude/chat-analysis-app-2fsuX
+   git push -u origin claude/kanban-plus-ultra-dev-VNoFa
    ```
 
 ## SESSION_LOG entry template
@@ -50,8 +50,8 @@ Copy/paste this into `docs/SESSION_LOG.md` and fill in:
 ```md
 ## YYYY-MM-DD — <one-line summary>
 
-- **Agent / model**: Claude Sonnet 4.6 (or Codex / Gemini if delegated)
-- **Branch**: `claude/chat-analysis-app-2fsuX`
+- **Agent / model**: Claude Opus 4.7 (or Codex / Gemini if delegated)
+- **Branch**: `claude/kanban-plus-ultra-dev-VNoFa`
 - **Phase**: 2 (Board CRUD + 2D grid)
 
 ### Goal

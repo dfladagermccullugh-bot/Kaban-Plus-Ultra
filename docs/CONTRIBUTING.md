@@ -46,7 +46,7 @@ pnpm dev                        # starts apps/web on http://localhost:3000
 ### Branches
 
 - One branch per feature / phase task.
-- `claude/chat-analysis-app-2fsuX` is the current dev integration branch for AI sessions.
+- `claude/kanban-plus-ultra-dev-VNoFa` is the current dev integration branch for AI sessions.
 - `main` is protected; merges via PR only.
 
 ### Commits

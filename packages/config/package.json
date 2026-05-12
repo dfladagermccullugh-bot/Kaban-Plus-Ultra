@@ -1,0 +1,11 @@
+{
+  "name": "@kpu/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tailwind": "./tailwind.preset.js",
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  },
+  "files": ["tailwind.preset.js", "tsconfig.base.json"]
+}

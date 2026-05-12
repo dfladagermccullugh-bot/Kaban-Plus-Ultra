@@ -1,0 +1,3 @@
+-- Seed data for local development. The auth-user trigger creates a demo board
+-- per signup, so most "seed" data is generated on the fly. Add fixtures here
+-- as need arises for e2e tests.

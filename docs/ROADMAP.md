@@ -3,24 +3,25 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 0 (Scaffolding) — in progress.
+**Current phase:** Phase 0 (Scaffolding) — **complete locally**, awaiting CI confirmation. Phase 1 (Auth + Profile) is next.
 
 ---
 
-## Phase 0 — Scaffolding ✦ in progress
+## Phase 0 — Scaffolding ✦ complete (pending CI)
 
 Goal: a green CI baseline + every doc in place so any future session has full context.
 
 - [x] Repo structure decided
 - [x] All documentation files created (`CLAUDE.md`, `docs/*.md`, `docs/AGENTS/*`, ADR 0001)
-- [ ] Monorepo bootstrap: `pnpm-workspace.yaml`, `turbo.json`, `package.json`, `biome.json`, `tsconfig.base.json`
-- [ ] `apps/web/` Next.js 15 scaffold with theme tokens + dark mode toggle
-- [ ] `packages/ui/`, `packages/core/`, `packages/db/`, `packages/config/` empty skeletons
-- [ ] Supabase project created (or local CLI for now); `.env.example` committed
-- [ ] First migration: `supabase/migrations/0001_init.sql` (all tables + RLS + triggers)
-- [ ] Vitest + Playwright skeleton green
-- [ ] GitHub Actions workflow: typecheck + test + lint on push
-- [ ] CI green on `claude/chat-analysis-app-2fsuX`
+- [x] Monorepo bootstrap: `pnpm-workspace.yaml`, `turbo.json`, `package.json`, `biome.json`, `tsconfig.base.json`
+- [x] `apps/web/` Next.js 15 scaffold with theme tokens + dark mode toggle
+- [x] `packages/ui/`, `packages/core/`, `packages/db/`, `packages/config/` skeletons (with `Button`, `cn`, ordering helpers + tests, Supabase client stubs)
+- [x] `.env.example` committed; `supabase/config.toml` for local CLI use
+- [x] First migration: `supabase/migrations/0001_init.sql` (all tables + RLS + auth trigger + demo board seed)
+- [x] Vitest skeleton green (13 tests in `@kpu/core`)
+- [x] GitHub Actions workflow: typecheck + test + lint + build on push
+- [x] Local green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` — all pass; dev server boots and serves the landing page
+- [ ] CI green on `claude/chat-analysis-app-2fsuX` (verify after push)
 
 ## Phase 1 — Auth + Profile
 

@@ -4,6 +4,125 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 3 kickoff: Tiptap modal, image upload, labels + filter bar
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-plus-ultra-dev-8Vmfo` (session-assigned; supersedes
+  `claude/kanban-plus-ultra-dev-VNoFa` for this push)
+- **Phase**: 3 (Card editor + images + labels)
+
+### Goal
+Land the Phase 3 surface — card editor in a parallel-route modal with
+debounced auto-save, image paste/drag-drop to Supabase Storage with
+blurhash placeholder, cover image on the card front, labels CRUD with
+multi-select + filter bar — and bump Next to the patched 15.x before any
+new feature code.
+
+### Changed
+
+**Next bump** (committed separately as `chore(deps)`)
+- `apps/web/package.json`, `pnpm-lock.yaml`, `apps/web/next-env.d.ts` —
+  `next` 15.1.3 → 15.5.18 (CVE-2025-66478, flagged in the previous handoff).
+
+**Schema** (`supabase/migrations/`)
+- `0003_storage_buckets.sql` — provisions `card-images` (private, 10 MB,
+  image mimes), `avatars` (public read), `exports` (private) buckets and
+  the matching `storage.objects` RLS policies. `card-images` writes route
+  through `has_board_access(<board_id from path>, 'editor')` so the
+  storage check mirrors the existing `public.images` RLS.
+
+**Types** (`packages/db/src/types.ts`)
+- Added the missing `images` table to the `Database` type definition.
+
+**Server actions** (`apps/web/app/(app)/b/[id]/actions.ts`)
+- `updateCardBody` — 64 KB cap, skips `revalidatePath` on body edits.
+- `setCardCoverImage` — links/unlinks `cards.cover_image_id`.
+- Label CRUD: `createLabel`, `updateLabel`, `deleteLabel`,
+  `attachLabel`, `detachLabel`.
+- Image lifecycle: `recordImage`, `getSignedImageUrl`.
+
+**Parallel-route modal** (`apps/web/app/(app)/b/[id]/`)
+- `layout.tsx`, `default.tsx`, `@modal/default.tsx`,
+  `@modal/(.)c/[cardId]/page.tsx`, `@modal/c/[cardId]/page.tsx`,
+  `card-modal-page.tsx` — see ADR 0005 for the file layout and why
+  `default.tsx` re-exports `page.tsx`.
+
+**Card editor surface** (new components)
+- `card-editor-modal.tsx` — modal shell with title, label picker,
+  cover-image chooser, save-status pill, upload status.
+- `tiptap-editor.tsx` — Tiptap + `tiptap-markdown` + `Placeholder` +
+  `Image`; paste & drop route image files through `onImageDropped`.
+- `upload-card-image.ts` — client uploader. Validates mime + 10 MB cap +
+  8192×8192 dim cap, computes a 4×3 blurhash via `blurhash` after
+  scaling, uploads to `card-images/<boardId>/<cardId>/<uuid>.<ext>`.
+  Surfaces raw Supabase errors so a missing bucket is visible to the user.
+- `cover-image.tsx` — blurhash → signed-URL cross-fade.
+- `label-picker.tsx`, `card-label-chips.tsx`, `label-filter-bar.tsx` —
+  label CRUD picker, compact chips on card fronts, AND-filter bar above
+  the grid.
+
+**Board surface**
+- `page.tsx` — fetches `labels`, `card_labels` (inner-joined to
+  `cards.board_id` for RLS-safe scoping), and `images`.
+- `board-view.tsx` — adds `selectedLabelIds` filter, derives maps,
+  renders `LabelFilterBar`. Clicking a card opens the modal via
+  `router.push('/b/<id>/c/<cardId>', { scroll: false })`; rename moves to
+  double-click.
+- `card-item.tsx` — cover thumbnail strip + compact label chips above
+  the title.
+- `types.ts` — `cover_image_id` on `CardModel`, plus `LabelModel`,
+  `CardLabelLink`, `ImageModel`.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 3 checkboxes ticked.
+- `docs/DECISIONS/0005-card-editor-parallel-route.md` — added.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (75 files clean)
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core`)
+- `pnpm build` ✅
+  - `/b/[id]` First Load JS 144 kB
+  - `/b/[id]/c/[cardId]` (direct) + `/b/[id]/(.)c/[cardId]` (intercept)
+    First Load JS 262 kB — Tiptap is the lion's share; upload helper &
+    `blurhash` are dynamic-imported from inside the modal so the board
+    bundle stays at 144 kB.
+- Manual: not exercised against Supabase — local env still missing keys;
+  SSR routes redirect to `/sign-in` as expected.
+
+### ADRs added
+- `docs/DECISIONS/0005-card-editor-parallel-route.md`
+
+### Delegations
+None.
+
+### Next up
+- **Apply migrations** (`0001` → `0003`) once Supabase is provisioned.
+  Without `0003`, the editor surfaces "Bucket not found" on image upload
+  — by design.
+- **Label management page** — only create + multi-select is wired into
+  the card UI; rename/delete/recolor actions exist server-side and just
+  need a board-settings surface.
+- **Virtualization** for cells > 50 cards (`@tanstack/react-virtual`)
+  remains the only unticked Phase 2 box; carry into Phase 4 unless a
+  real board hits the threshold first.
+- **Phase 4 — Realtime + sharing** is the next major surface: per-board
+  Supabase Realtime channel, presence avatars, invite by email, role
+  management, public read-only share links.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`. The `prose`
+  classes used by Tiptap need `@tailwindcss/typography` for full styling;
+  today the editor falls back to plain styles, which is acceptable for
+  v0.
+- **Modal bundle size**: Tiptap is ~120 kB. If we add slash commands or
+  mentions later, consider splitting the editor itself behind another
+  dynamic import inside the modal route.
+
+---
+
 ## 2026-05-12 — Handoff: PRs #4 + #5 merged, working branch synced to main
 
 - **Agent / model**: Claude (Opus 4.7)

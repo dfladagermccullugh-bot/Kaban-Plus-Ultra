@@ -129,6 +129,207 @@ export async function deleteCard(boardId: string, cardId: string): Promise<Actio
   }
 }
 
+export async function updateCardBody(
+  boardId: string,
+  cardId: string,
+  bodyMd: string,
+): Promise<ActionResult> {
+  try {
+    if (bodyMd.length > 64_000) {
+      return { ok: false, error: 'Card body must be 64,000 characters or fewer.' };
+    }
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('cards').update({ body_md: bodyMd }).eq('id', cardId);
+    if (error) return { ok: false, error: error.message };
+    // Body edits don't affect the board grid; skip revalidatePath to avoid an
+    // unnecessary round-trip while the user is typing.
+    void boardId;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function setCardCoverImage(
+  boardId: string,
+  cardId: string,
+  imageId: string | null,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase
+      .from('cards')
+      .update({ cover_image_id: imageId })
+      .eq('id', cardId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+// ─── Labels ───────────────────────────────────────────────────────────────
+
+export async function createLabel(
+  boardId: string,
+  name: string,
+  color: string,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, error: 'Name is required.' };
+    if (trimmed.length > 40) return { ok: false, error: 'Name must be 40 characters or fewer.' };
+    const { supabase } = await authedClient();
+    const { data, error } = await supabase
+      .from('labels')
+      .insert({ board_id: boardId, name: trimmed, color })
+      .select('id')
+      .single();
+    if (error || !data) return { ok: false, error: error?.message ?? 'Failed to create label.' };
+    bumpBoard(boardId);
+    return { ok: true, data: { id: data.id } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function updateLabel(
+  boardId: string,
+  labelId: string,
+  patch: { name?: string; color?: string },
+): Promise<ActionResult> {
+  try {
+    const update: { name?: string; color?: string } = {};
+    if (patch.name !== undefined) {
+      const trimmed = patch.name.trim();
+      if (!trimmed) return { ok: false, error: 'Name is required.' };
+      if (trimmed.length > 40) return { ok: false, error: 'Name must be 40 characters or fewer.' };
+      update.name = trimmed;
+    }
+    if (patch.color !== undefined) update.color = patch.color;
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('labels').update(update).eq('id', labelId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function deleteLabel(boardId: string, labelId: string): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('labels').delete().eq('id', labelId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function attachLabel(
+  boardId: string,
+  cardId: string,
+  labelId: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase
+      .from('card_labels')
+      .insert({ card_id: cardId, label_id: labelId });
+    if (error && !error.message.includes('duplicate')) {
+      return { ok: false, error: error.message };
+    }
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function detachLabel(
+  boardId: string,
+  cardId: string,
+  labelId: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase
+      .from('card_labels')
+      .delete()
+      .eq('card_id', cardId)
+      .eq('label_id', labelId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+// ─── Images ───────────────────────────────────────────────────────────────
+
+export type RecordImageInput = {
+  boardId: string;
+  cardId: string | null;
+  storagePath: string;
+  width: number;
+  height: number;
+  mime: string;
+  blurhash: string;
+};
+
+export async function recordImage(input: RecordImageInput): Promise<ActionResult<{ id: string }>> {
+  try {
+    const { supabase, user } = await authedClient();
+    if (!Number.isFinite(input.width) || input.width <= 0 || input.width > 8192)
+      return { ok: false, error: 'Invalid image width.' };
+    if (!Number.isFinite(input.height) || input.height <= 0 || input.height > 8192)
+      return { ok: false, error: 'Invalid image height.' };
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowed.includes(input.mime)) return { ok: false, error: 'Image type not allowed.' };
+
+    const { data, error } = await supabase
+      .from('images')
+      .insert({
+        board_id: input.boardId,
+        card_id: input.cardId,
+        storage_path: input.storagePath,
+        width: input.width,
+        height: input.height,
+        mime: input.mime,
+        blurhash: input.blurhash,
+        uploaded_by: user.id,
+      })
+      .select('id')
+      .single();
+    if (error || !data) return { ok: false, error: error?.message ?? 'Failed to record image.' };
+    bumpBoard(input.boardId);
+    return { ok: true, data: { id: data.id } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function getSignedImageUrl(
+  storagePath: string,
+  expiresInSeconds = 60 * 60,
+): Promise<ActionResult<{ url: string }>> {
+  try {
+    const { supabase } = await authedClient();
+    const { data, error } = await supabase.storage
+      .from('card-images')
+      .createSignedUrl(storagePath, expiresInSeconds);
+    if (error || !data) return { ok: false, error: error?.message ?? 'Failed to sign URL.' };
+    return { ok: true, data: { url: data.signedUrl } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
 // ─── Rows ─────────────────────────────────────────────────────────────────
 
 export async function createRow(

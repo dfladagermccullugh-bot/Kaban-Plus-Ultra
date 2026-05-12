@@ -148,6 +148,25 @@ export interface Database {
         Insert: Database['public']['Tables']['card_labels']['Row'];
         Update: Partial<Database['public']['Tables']['card_labels']['Insert']>;
       };
+      images: {
+        Row: {
+          id: string;
+          board_id: string;
+          card_id: string | null;
+          storage_path: string;
+          width: number;
+          height: number;
+          mime: string;
+          blurhash: string;
+          uploaded_by: string;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['images']['Row'], 'id' | 'created_at'> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['images']['Insert']>;
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

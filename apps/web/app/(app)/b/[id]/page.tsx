@@ -17,7 +17,15 @@ export default async function BoardPage({ params }: Params) {
   if (!user) redirect(`/sign-in?next=/b/${id}`);
 
   const supabase = await createClient();
-  const [{ data: board }, { data: rows }, { data: columns }, { data: cards }] = await Promise.all([
+  const [
+    { data: board },
+    { data: rows },
+    { data: columns },
+    { data: cards },
+    { data: labels },
+    { data: cardLabels },
+    { data: coverImages },
+  ] = await Promise.all([
     supabase.from('boards').select('id, title, cover_color, owner_id').eq('id', id).maybeSingle(),
     supabase
       .from('rows')
@@ -29,11 +37,25 @@ export default async function BoardPage({ params }: Params) {
       .eq('board_id', id),
     supabase
       .from('cards')
-      .select('id, board_id, row_id, column_id, title, position')
+      .select('id, board_id, row_id, column_id, title, position, cover_image_id')
+      .eq('board_id', id),
+    supabase.from('labels').select('id, board_id, name, color').eq('board_id', id),
+    supabase
+      .from('card_labels')
+      .select('card_id, label_id, cards!inner(board_id)')
+      .eq('cards.board_id', id),
+    supabase
+      .from('images')
+      .select('id, board_id, card_id, storage_path, width, height, mime, blurhash')
       .eq('board_id', id),
   ]);
 
   if (!board) notFound();
+
+  const cardLabelLinks = (cardLabels ?? []).map((link) => ({
+    card_id: link.card_id,
+    label_id: link.label_id,
+  }));
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -56,6 +78,9 @@ export default async function BoardPage({ params }: Params) {
         initialRows={sortByPosition(rows ?? [])}
         initialColumns={sortByPosition(columns ?? [])}
         initialCards={cards ?? []}
+        initialLabels={labels ?? []}
+        initialCardLabels={cardLabelLinks}
+        initialImages={coverImages ?? []}
       />
     </div>
   );

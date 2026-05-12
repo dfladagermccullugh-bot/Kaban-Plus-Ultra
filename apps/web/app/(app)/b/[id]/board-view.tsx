@@ -36,14 +36,25 @@ import {
 } from './actions';
 import { CardItem } from './card-item';
 import { ColumnHeader } from './column-header';
+import { LabelFilterBar } from './label-filter-bar';
 import { RowHeader } from './row-header';
-import type { CardModel, ColumnModel, RowModel } from './types';
+import type {
+  CardLabelLink,
+  CardModel,
+  ColumnModel,
+  ImageModel,
+  LabelModel,
+  RowModel,
+} from './types';
 
 type Props = {
   boardId: string;
   initialRows: RowModel[];
   initialColumns: ColumnModel[];
   initialCards: CardModel[];
+  initialLabels: LabelModel[];
+  initialCardLabels: CardLabelLink[];
+  initialImages: ImageModel[];
 };
 
 type DropTarget =
@@ -62,22 +73,55 @@ function parseDroppableId(id: string): DropTarget | null {
   return null;
 }
 
-export function BoardView({ boardId, initialRows, initialColumns, initialCards }: Props) {
+export function BoardView({
+  boardId,
+  initialRows,
+  initialColumns,
+  initialCards,
+  initialLabels,
+  initialCardLabels,
+  initialImages,
+}: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<RowModel[]>(initialRows);
   const [columns, setColumns] = useState<ColumnModel[]>(initialColumns);
   const [cards, setCards] = useState<CardModel[]>(initialCards);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
+
+  // Labels, card-label links, and images are owned by the server: the modal
+  // mutates them and triggers `router.refresh()`. Read directly from props.
+  const labels = initialLabels;
+  const cardLabels = initialCardLabels;
+  const images = initialImages;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const sortedRows = useMemo(() => sortByPosition(rows), [rows]);
   const sortedColumns = useMemo(() => sortByPosition(columns), [columns]);
 
+  const labelsByCard = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const link of cardLabels) {
+      const arr = map.get(link.card_id);
+      if (arr) arr.push(link.label_id);
+      else map.set(link.card_id, [link.label_id]);
+    }
+    return map;
+  }, [cardLabels]);
+
+  const filteredCards = useMemo(() => {
+    if (selectedLabelIds.length === 0) return cards;
+    return cards.filter((c) => {
+      const cardLabelIds = labelsByCard.get(c.id) ?? [];
+      return selectedLabelIds.every((id) => cardLabelIds.includes(id));
+    });
+  }, [cards, labelsByCard, selectedLabelIds]);
+
   const cardsByCell = useMemo(() => {
     const map = new Map<string, CardModel[]>();
-    for (const c of cards) {
+    for (const c of filteredCards) {
       const key = `${c.row_id}:${c.column_id}`;
       const arr = map.get(key);
       if (arr) arr.push(c);
@@ -85,7 +129,19 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
     }
     for (const arr of map.values()) arr.sort((a, b) => a.position - b.position);
     return map;
-  }, [cards]);
+  }, [filteredCards]);
+
+  const labelsById = useMemo(() => {
+    const map = new Map<string, LabelModel>();
+    for (const l of labels) map.set(l.id, l);
+    return map;
+  }, [labels]);
+
+  const imagesById = useMemo(() => {
+    const map = new Map<string, ImageModel>();
+    for (const i of images) map.set(i.id, i);
+    return map;
+  }, [images]);
 
   const moveCardMutation = useMutation({
     mutationFn: async (input: {
@@ -216,7 +272,15 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
     const position = positionBetween(last?.position ?? null, null);
     setCards((prev) => [
       ...prev,
-      { id: tempId, board_id: boardId, row_id: rowId, column_id: columnId, title, position },
+      {
+        id: tempId,
+        board_id: boardId,
+        row_id: rowId,
+        column_id: columnId,
+        title,
+        position,
+        cover_image_id: null,
+      },
     ]);
     const result = await createCard({ boardId, rowId, columnId, title });
     if (result.ok) {
@@ -424,6 +488,16 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <LabelFilterBar
+        labels={labels}
+        selectedIds={selectedLabelIds}
+        onToggle={(id) =>
+          setSelectedLabelIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+          )
+        }
+        onClear={() => setSelectedLabelIds([])}
+      />
       <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         <div
           className="grid min-w-max origin-top-left"
@@ -471,6 +545,9 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
               row={row}
               columns={sortedColumns}
               cards={cardsByCell}
+              labelsByCard={labelsByCard}
+              labelsById={labelsById}
+              imagesById={imagesById}
               boardId={boardId}
               isFirst={rowIdx === 0}
               isLast={rowIdx === sortedRows.length - 1}
@@ -483,6 +560,7 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
               onCardCreate={(columnId, title) => handleCreateCard(row.id, columnId, title)}
               onCardRename={handleRenameCard}
               onCardDelete={handleDeleteCard}
+              onCardOpen={(cardId) => router.push(`/b/${boardId}/c/${cardId}`, { scroll: false })}
             />
           ))}
 
@@ -517,6 +595,9 @@ type RowSliceProps = {
   row: RowModel;
   columns: ColumnModel[];
   cards: Map<string, CardModel[]>;
+  labelsByCard: Map<string, string[]>;
+  labelsById: Map<string, LabelModel>;
+  imagesById: Map<string, ImageModel>;
   boardId: string;
   isFirst: boolean;
   isLast: boolean;
@@ -529,12 +610,16 @@ type RowSliceProps = {
   onCardCreate: (columnId: string, title: string) => void;
   onCardRename: (cardId: string, title: string) => void;
   onCardDelete: (cardId: string) => void;
+  onCardOpen: (cardId: string) => void;
 };
 
 function RowSlice({
   row,
   columns,
   cards,
+  labelsByCard,
+  labelsById,
+  imagesById,
   isFirst,
   isLast,
   canDelete,
@@ -546,6 +631,7 @@ function RowSlice({
   onCardCreate,
   onCardRename,
   onCardDelete,
+  onCardOpen,
 }: RowSliceProps) {
   return (
     <>
@@ -577,9 +663,13 @@ function RowSlice({
               rowId={row.id}
               columnId={column.id}
               cards={cards.get(`${row.id}:${column.id}`) ?? []}
+              labelsByCard={labelsByCard}
+              labelsById={labelsById}
+              imagesById={imagesById}
               onCardCreate={(title) => onCardCreate(column.id, title)}
               onCardRename={onCardRename}
               onCardDelete={onCardDelete}
+              onCardOpen={onCardOpen}
             />
           ))}
       <div className="border-b border-border" />
@@ -603,12 +693,27 @@ type CellProps = {
   rowId: string;
   columnId: string;
   cards: CardModel[];
+  labelsByCard: Map<string, string[]>;
+  labelsById: Map<string, LabelModel>;
+  imagesById: Map<string, ImageModel>;
   onCardCreate: (title: string) => void;
   onCardRename: (cardId: string, title: string) => void;
   onCardDelete: (cardId: string) => void;
+  onCardOpen: (cardId: string) => void;
 };
 
-function Cell({ rowId, columnId, cards, onCardCreate, onCardRename, onCardDelete }: CellProps) {
+function Cell({
+  rowId,
+  columnId,
+  cards,
+  labelsByCard,
+  labelsById,
+  imagesById,
+  onCardCreate,
+  onCardRename,
+  onCardDelete,
+  onCardOpen,
+}: CellProps) {
   const droppableId = `cell:${rowId}:${columnId}`;
   const { isOver, setNodeRef } = useDroppable({ id: droppableId });
   const [adding, setAdding] = useState(false);
@@ -621,14 +726,24 @@ function Cell({ rowId, columnId, cards, onCardCreate, onCardRename, onCardDelete
         isOver && 'bg-accent/5',
       )}
     >
-      {cards.map((card) => (
-        <DraggableCard
-          key={card.id}
-          card={card}
-          onRename={(title) => onCardRename(card.id, title)}
-          onDelete={() => onCardDelete(card.id)}
-        />
-      ))}
+      {cards.map((card) => {
+        const labelIds = labelsByCard.get(card.id) ?? [];
+        const cardLabels = labelIds
+          .map((id) => labelsById.get(id))
+          .filter((l): l is LabelModel => Boolean(l));
+        const cover = card.cover_image_id ? (imagesById.get(card.cover_image_id) ?? null) : null;
+        return (
+          <DraggableCard
+            key={card.id}
+            card={card}
+            labels={cardLabels}
+            coverImage={cover}
+            onRename={(title) => onCardRename(card.id, title)}
+            onDelete={() => onCardDelete(card.id)}
+            onOpen={() => onCardOpen(card.id)}
+          />
+        );
+      })}
       {adding ? (
         <NewCardInput
           onSubmit={(title) => {
@@ -652,12 +767,18 @@ function Cell({ rowId, columnId, cards, onCardCreate, onCardRename, onCardDelete
 
 function DraggableCard({
   card,
+  labels,
+  coverImage,
   onRename,
   onDelete,
+  onOpen,
 }: {
   card: CardModel;
+  labels: LabelModel[];
+  coverImage: ImageModel | null;
   onRename: (title: string) => void;
   onDelete: () => void;
+  onOpen: () => void;
 }) {
   const draggableId = `card:${card.id}`;
   const {
@@ -688,10 +809,13 @@ function DraggableCard({
     >
       <CardItem
         card={card}
+        labels={labels}
+        coverImage={coverImage}
         dragAttributes={attributes}
         dragListeners={listeners}
         onRename={onRename}
         onDelete={onDelete}
+        onOpen={onOpen}
       />
     </div>
   );

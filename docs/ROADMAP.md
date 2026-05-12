@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 2 ✅ shipped to `main` (PRs #4 + #5). Only virtualization (≥200 cards) is left unticked — carry-over into Phase 3. **Phase 3 (Card editor + images + labels) is next.**
+**Current phase:** Phase 3 in progress — editor + images + labels landed on the working branch (commit pending). Virtualization (Phase 2 carry-over) and label-delete UX (no inline label-management page yet) are the remaining unticked items.
 
 ---
 
@@ -53,12 +53,12 @@ Goal: the headline feature. Real swimlanes with drag-drop.
 
 Goal: cards are real, expressive, with images.
 
-- [ ] Tiptap markdown editor in modal
-- [ ] Auto-save (600ms debounce) with "saved" pulse
-- [ ] Image paste / drag-drop → Supabase Storage → blurhash placeholder
-- [ ] Cover image on card front
-- [ ] Labels: CRUD, color picker, multi-select on cards
-- [ ] Label filter bar at the top of the board
+- [x] Tiptap markdown editor in modal (parallel route `/b/[id]/c/[cardId]` with intercept)
+- [x] Auto-save (600 ms debounce) with "saved" pulse
+- [x] Image paste / drag-drop → Supabase Storage (`card-images` bucket, migration 0003) → blurhash placeholder (client-side `blurhash` encode)
+- [x] Cover image on card front (with chooser in the modal)
+- [x] Labels: create + color picker + multi-select on cards (delete + rename actions exist server-side; UI lands in a follow-up if needed)
+- [x] Label filter bar at the top of the board (AND-of-labels)
 
 ## Phase 4 — Realtime + sharing
 

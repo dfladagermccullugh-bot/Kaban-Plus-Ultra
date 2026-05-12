@@ -3,35 +3,37 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 0 (Scaffolding) — in progress.
+**Current phase:** Phase 1 (Auth + Profile) **complete locally**. Phase 2 (Board CRUD + 2D grid) is next.
 
 ---
 
-## Phase 0 — Scaffolding ✦ in progress
+## Phase 0 — Scaffolding ✦ complete (pending CI)
 
 Goal: a green CI baseline + every doc in place so any future session has full context.
 
 - [x] Repo structure decided
 - [x] All documentation files created (`CLAUDE.md`, `docs/*.md`, `docs/AGENTS/*`, ADR 0001)
-- [ ] Monorepo bootstrap: `pnpm-workspace.yaml`, `turbo.json`, `package.json`, `biome.json`, `tsconfig.base.json`
-- [ ] `apps/web/` Next.js 15 scaffold with theme tokens + dark mode toggle
-- [ ] `packages/ui/`, `packages/core/`, `packages/db/`, `packages/config/` empty skeletons
-- [ ] Supabase project created (or local CLI for now); `.env.example` committed
-- [ ] First migration: `supabase/migrations/0001_init.sql` (all tables + RLS + triggers)
-- [ ] Vitest + Playwright skeleton green
-- [ ] GitHub Actions workflow: typecheck + test + lint on push
-- [ ] CI green on `claude/chat-analysis-app-2fsuX`
+- [x] Monorepo bootstrap: `pnpm-workspace.yaml`, `turbo.json`, `package.json`, `biome.json`, `tsconfig.base.json`
+- [x] `apps/web/` Next.js 15 scaffold with theme tokens + dark mode toggle
+- [x] `packages/ui/`, `packages/core/`, `packages/db/`, `packages/config/` skeletons (with `Button`, `cn`, ordering helpers + tests, Supabase client stubs)
+- [x] `.env.example` committed; `supabase/config.toml` for local CLI use
+- [x] First migration: `supabase/migrations/0001_init.sql` (all tables + RLS + auth trigger + demo board seed)
+- [x] Vitest skeleton green (13 tests in `@kpu/core`)
+- [x] GitHub Actions workflow: typecheck + test + lint + build on push
+- [x] Local green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` — all pass; dev server boots and serves the landing page
+- [ ] CI green on `claude/chat-analysis-app-2fsuX` (verify after push)
 
-## Phase 1 — Auth + Profile
+## Phase 1 — Auth + Profile ✦ complete (avatar deferred to phase 3)
 
 Goal: sign in, sign out, edit profile.
 
-- [ ] Email magic link sign-in
-- [ ] Google OAuth sign-in
-- [ ] `on_auth_user_created` trigger seeds profile + demo board
-- [ ] Protected route middleware
-- [ ] `/profile` page (display name, avatar upload, accent color)
-- [ ] Sign-out flow + session persistence
+- [x] Email magic link sign-in (`/sign-in` form → Supabase `signInWithOtp`)
+- [x] Google OAuth sign-in (`signInWithOAuth({ provider: 'google' })`)
+- [x] `on_auth_user_created` trigger seeds profile + demo board (in `supabase/migrations/0001_init.sql`)
+- [x] Protected route middleware (`apps/web/middleware.ts` + `lib/supabase/middleware.ts`)
+- [x] `/profile` page (display name + accent color, server action)
+- [x] Sign-out flow (`/sign-out` POST handler) + session persistence (HTTP-only cookies via `@supabase/ssr`)
+- [ ] Avatar upload (deferred to Phase 3 when Supabase Storage buckets are created)
 
 ## Phase 2 — Board CRUD + 2D grid
 

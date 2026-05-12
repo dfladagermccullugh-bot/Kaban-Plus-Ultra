@@ -169,7 +169,16 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      rotate_share_token: {
+        Args: { board_id: string };
+        Returns: string;
+      };
+      revoke_share_token: {
+        Args: { board_id: string };
+        Returns: undefined;
+      };
+    };
     Enums: {
       role: Role;
       visibility: Visibility;

@@ -16,6 +16,8 @@ import {
 import { CardLabelChips } from './card-label-chips';
 import { CoverImage } from './cover-image';
 import { LabelPicker } from './label-picker';
+import { PeerEditingBanner } from './peer-editing-banner';
+import { setLocalViewingCardId } from './presence-bus';
 import { TiptapEditor } from './tiptap-editor';
 import type { ImageModel, LabelModel } from './types';
 
@@ -35,6 +37,7 @@ type Props = {
   labels: LabelModel[];
   cardLabelIds: string[];
   images: ImageModel[];
+  selfId: string | null;
 };
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -45,6 +48,7 @@ export function CardEditorModal({
   labels: initialLabels,
   cardLabelIds: initialCardLabelIds,
   images: initialImages,
+  selfId,
 }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState(card.title);
@@ -77,6 +81,14 @@ export function CardEditorModal({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  // Tell the presence bus which card we're editing so peers can see it.
+  useEffect(() => {
+    setLocalViewingCardId(card.id);
+    return () => {
+      setLocalViewingCardId(null);
+    };
+  }, [card.id]);
 
   // ─── Title save (on blur) ───────────────────────────────────────────────
   async function handleTitleBlur() {
@@ -266,6 +278,8 @@ export function CardEditorModal({
         </button>
 
         <div className="space-y-4 p-6">
+          <PeerEditingBanner cardId={card.id} selfId={selfId} />
+
           {/* Title */}
           <input
             value={title}

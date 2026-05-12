@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 4 in progress — per-board Supabase Realtime channel and presence avatars are wired in BoardView; invites + share links are the next items. Virtualization (Phase 2 carry-over) and the label-management page are still open.
+**Current phase:** Phase 4 nearly complete — realtime, presence (with "X is editing" hint), invite-by-email, public read-only share links, and the label-management surface have all landed. Per-cell virtualization for big cells is in. Remaining: harden invites against very large user lists (currently `listUsers` is single-page) and stress-test share-link RLS against a real Supabase project.
 
 ---
 
@@ -46,7 +46,7 @@ Goal: the headline feature. Real swimlanes with drag-drop.
 - [x] Columns: create, rename, recolor, reorder, set WIP limit (+ over-limit badge), delete
 - [x] Cards: quick create, drag-drop across cells (dnd-kit + fractional indexing), inline rename, delete
 - [x] Optimistic mutations via TanStack Query (card moves) + `useTransition` (CRUD)
-- [ ] Virtualization for boards > 200 cards (`@tanstack/react-virtual`)
+- [x] Virtualization for cells > 50 cards (`@tanstack/react-virtual`; per-cell, threshold-gated so dnd-kit keeps precise drops on small cells)
 - [x] Ctrl/⌘-scroll zoom (zoom level persisted per board in `localStorage`); pinch deferred until Capacitor (Phase 5)
 
 ## Phase 3 — Card editor + images + labels
@@ -57,7 +57,7 @@ Goal: cards are real, expressive, with images.
 - [x] Auto-save (600 ms debounce) with "saved" pulse
 - [x] Image paste / drag-drop → Supabase Storage (`card-images` bucket, migration 0003) → blurhash placeholder (client-side `blurhash` encode)
 - [x] Cover image on card front (with chooser in the modal)
-- [x] Labels: create + color picker + multi-select on cards (delete + rename actions exist server-side; UI lands in a follow-up if needed)
+- [x] Labels: create + color picker + multi-select on cards; rename / recolor / delete UI now lives in the board settings popover
 - [x] Label filter bar at the top of the board (AND-of-labels)
 
 ## Phase 4 — Realtime + sharing
@@ -66,10 +66,10 @@ Goal: friends on the same board, live.
 
 - [x] Realtime subscription per board (cards, rows, columns, labels, card_labels, images) — migration 0004 enables the publication; `useBoardRealtime` merges incoming changes into BoardView state and locks the actively-dragged card against remote echoes
 - [x] Presence avatars in top-right (`presence:<boardId>` channel — initials + accent ring; self gets a thinner ring)
-- [ ] "X is editing" hint on cards open in another client
-- [ ] Invite collaborator by email (sends magic link with attached invite)
-- [ ] Role management (viewer / editor / admin)
-- [ ] Public read-only share links (generate, rotate, revoke)
+- [x] "X is editing" hint on cards open in another client (presence payload carries `viewing_card_id`; `PeerEditingBanner` surfaces it inside the card modal)
+- [x] Invite collaborator by email (sends magic link with attached invite; service-role invite path + auto-upsert into `board_collaborators`)
+- [x] Role management (viewer / editor / admin) — popover surface in board settings
+- [x] Public read-only share links (generate, rotate, revoke — migration 0005, RPC + RLS for child tables, `/s/[id]` viewer route)
 
 ## Phase 5 — Mobile shell
 

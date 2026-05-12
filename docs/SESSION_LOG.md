@@ -4,6 +4,158 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 4 continued: invites, share links, "X is editing", label mgmt, per-cell virtualization
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/phase-4-realtime-channel-MkZ7T` (session-assigned;
+  stacks on `b581c86` — the merge of the previous session's PR #9 onto
+  `main`)
+- **Phase**: 4 (Realtime + sharing) — all remaining checkboxes
+  except large-fleet-scale invite-by-email ticked
+
+### Goal
+Close the remaining Phase 4 checkboxes: invite-by-email (service-role
+admin client + `board_collaborators` upsert + role select), public
+read-only share links (generate / rotate / revoke + anonymous viewer
+route), the "X is editing" presence hint, a label-management surface,
+and per-cell virtualization for the last unticked Phase 2 box.
+
+### Changed
+
+**Schema** (`supabase/migrations/`)
+- `0005_share_links.sql` — `has_share_access(b)` security-definer
+  helper that reads `request.headers->>'x-share-token'`; extends every
+  child table's read policy with `OR has_share_access(...)` so an
+  anonymous bearer of the token sees the same rows as a viewer; plus
+  `rotate_share_token` and `revoke_share_token` RPCs (only the owner
+  can call).
+
+**Types** (`packages/db/src/types.ts`)
+- `Functions` slot fleshed out with the two new RPCs so `supabase.rpc`
+  is typed end-to-end.
+
+**Admin client** (`apps/web/lib/supabase/admin.ts`)
+- New `createAdmin()`, `import 'server-only'`, wraps the service-role
+  factory from `@kpu/db`. Throws clearly if
+  `SUPABASE_SERVICE_ROLE_KEY` is missing.
+
+**Server actions** (`apps/web/app/(app)/b/[id]/settings-actions.ts` — new)
+- `inviteCollaborator(boardId, email, role)` — owner/admin gate,
+  `admin.auth.admin.listUsers()` lookup, falls back to
+  `inviteUserByEmail` with `redirectTo` pointing back at the board,
+  then upserts into `board_collaborators` (so re-invites with a new
+  role work).
+- `updateCollaboratorRole`, `removeCollaborator` — owner/admin gate,
+  user-scoped client (RLS already restricts to admins).
+- `rotateShareToken`, `revokeShareToken` — thin wrappers around the
+  RPCs; return the freshly built `/s/<id>?t=<token>` URL.
+
+**Public share viewer** (`apps/web/app/s/[id]/page.tsx` — new)
+- Anonymous read-only board view. Uses `@supabase/supabase-js`
+  directly with `global: { headers: { 'x-share-token': t } }` and
+  `auth.persistSession: false` so no cookie ever attaches. Renders
+  board title, sticky column + row headers, and cards per cell. No
+  Tiptap, no dnd, no realtime — 106 kB First Load JS.
+- `apps/web/lib/supabase/middleware.ts` — adds `/s/` to the public
+  prefix list so the middleware doesn't redirect to `/sign-in`.
+
+**Board settings popover** (`apps/web/app/(app)/b/[id]/board-settings.tsx` — new)
+- Gear icon in the header (owner-only). Sections:
+  - **Share link** — generate / rotate / revoke; one-click copy.
+  - **Collaborators** — invite by email + role select; per-row role
+    change + remove.
+  - **Labels** — inline rename, color swatch palette, delete (with a
+    confirm step). Built on top of the existing `updateLabel` and
+    `deleteLabel` server actions.
+- `apps/web/app/(app)/b/[id]/page.tsx` — server-loads collaborators
+  (board_collaborators inner-joined to profiles) and the existing
+  `share_token` column, passes both into `<BoardSettings>`.
+
+**"X is editing" hint**
+- `apps/web/app/(app)/b/[id]/presence-bus.ts` — module-level pub/sub
+  for the two presence consumers that don't share a tree (the avatars
+  in the header and the banner inside the parallel-route modal).
+- `apps/web/app/(app)/b/[id]/presence-avatars.tsx` — tracked payload
+  now carries `viewing_card_id`; the sync handler picks the most
+  recent `online_at` per user so the latest tab wins; publishes the
+  merged peer list to the bus.
+- `apps/web/app/(app)/b/[id]/peer-editing-banner.tsx` — small banner
+  inside the card modal listing other peers viewing the same card.
+- `apps/web/app/(app)/b/[id]/card-editor-modal.tsx` — mounts/unmounts
+  the local-viewing-card on open/close.
+- `apps/web/app/(app)/b/[id]/card-modal-page.tsx` — threads
+  `selfId` through so the banner can filter the current user out.
+
+**Virtualization**
+- `apps/web/package.json` — `+ @tanstack/react-virtual ^3.10.0`.
+- `apps/web/app/(app)/b/[id]/board-view.tsx` — new `VirtualCardList`
+  inside `Cell`. Threshold-gated at 50 cards; below that, the original
+  render path is unchanged so dnd-kit can pick precise drop targets.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 4 checkboxes ticked; Phase 2 virtualization
+  box closed (per-cell instead of per-board); status line updated.
+- `docs/DECISIONS/0007-invites-and-share-links.md` — added.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (83 files clean after biome auto-fix on imports)
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core` still green; no new tests)
+- `pnpm build` ✅
+  - `/b/[id]` 136 B / **191 kB** First Load JS (up from 183 kB —
+    settings popover + react-virtual)
+  - `/b/[id]/c/[cardId]` 132 B / **263 kB** (banner is essentially
+    free)
+  - `/s/[id]` 162 B / **106 kB** First Load JS (anonymous viewer)
+- Manual: not exercised against Supabase — local env still missing
+  keys. All routes SSR-build cleanly; share viewer renders without
+  auth cookies as expected when env is wired up.
+
+### ADRs added
+- `docs/DECISIONS/0007-invites-and-share-links.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Label management lives in the settings popover, not its own page**:
+  one less route, the data is already loaded server-side, and the UX
+  fits in the same "things-only-the-owner-touches" area as invites and
+  share links. Easy to extract to `/b/[id]/labels` later if anyone
+  asks.
+- **`/s/[id]` uses `@supabase/supabase-js` directly, not `@supabase/ssr`**:
+  the ssr client reads auth cookies, which we want to leave on the
+  floor for an anonymous share-link request so the token is the only
+  authorization signal.
+- **`viewing_card_id` carried in the existing tracked payload**: no new
+  channel — one channel multiplexes everything. The cost is a small
+  schema bump in the payload that older builds can ignore.
+
+### Next up
+1. **Tail-end invite hardening**: `listUsers({ perPage: 200 })` is fine
+   for self-hosted KPU but won't scale on a tenant with thousands of
+   users. Replace with a directory lookup once we have something to
+   look up against (or pin email in `profiles` and search there).
+2. **Audit-events writer**: every invite / role change / token rotate
+   should land in `audit_events`. The table exists but no code writes
+   to it yet.
+3. **Phase 5 prep**: `apps/mobile/` Capacitor init, `capacitor.config.ts`,
+   touch-tuned drag with haptics. The board surface is now stable
+   enough that the mobile shell can wrap it.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 → 0005
+  must all be applied before invites + share links + realtime light up.
+  Invites additionally need `SUPABASE_SERVICE_ROLE_KEY` in the server
+  env and a working SMTP (or local supabase + inbucket).
+- **Share-link rate-limiting**: not in place. Supabase's RLS check is
+  cheap, but a determined attacker could brute-force a 128-bit token.
+  Acceptable today; revisit if we ever publish KPU.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-12 — Phase 4 kickoff: per-board Realtime channel + presence avatars
 
 - **Agent / model**: Claude (Opus 4.7)

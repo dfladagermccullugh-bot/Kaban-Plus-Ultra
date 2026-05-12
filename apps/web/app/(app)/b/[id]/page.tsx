@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { BoardView } from './board-view';
+import { PresenceAvatars } from './presence-avatars';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +71,17 @@ export default async function BoardPage({ params }: Params) {
           </Link>
           <h1 className="truncate text-sm font-semibold">{board.title}</h1>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-3">
+          <PresenceAvatars
+            boardId={board.id}
+            me={{
+              id: user.id,
+              displayName: user.displayName ?? user.email.split('@')[0] ?? 'Anonymous',
+              accentColor: user.accentColor ?? 'indigo',
+            }}
+          />
+          <ThemeToggle />
+        </div>
       </header>
 
       <BoardView

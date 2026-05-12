@@ -1,20 +1,11 @@
 'use client';
 
 import { cn } from '@kpu/ui';
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { OptionsPopover } from './options-popover';
+import { SWATCH_BG, SWATCH_COLORS, swatchClass } from './swatches';
 import type { RowModel } from './types';
-
-const COLOR_DOT: Record<string, string> = {
-  slate: 'bg-slate-500',
-  amber: 'bg-amber-500',
-  green: 'bg-emerald-500',
-  indigo: 'bg-accent',
-  rose: 'bg-rose-500',
-  violet: 'bg-violet-500',
-  sky: 'bg-sky-500',
-  teal: 'bg-teal-500',
-};
 
 type Props = {
   row: RowModel;
@@ -24,13 +15,25 @@ type Props = {
   onRename: (title: string) => void;
   onDelete: () => void;
   onMove: (direction: -1 | 1) => void;
+  onColorChange: (color: string) => void;
+  onCollapseToggle: () => void;
 };
 
-export function RowHeader({ row, isFirst, isLast, canDelete, onRename, onDelete, onMove }: Props) {
+export function RowHeader({
+  row,
+  isFirst,
+  isLast,
+  canDelete,
+  onRename,
+  onDelete,
+  onMove,
+  onColorChange,
+  onCollapseToggle,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(row.title);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dot = (row.color && COLOR_DOT[row.color]) ?? COLOR_DOT.slate;
+  const dot = swatchClass(row.color);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -44,12 +47,19 @@ export function RowHeader({ row, isFirst, isLast, canDelete, onRename, onDelete,
   }
 
   return (
-    <div
-      className={cn(
-        'sticky left-0 z-10 flex items-start gap-2 border-b border-r border-border bg-bg-elevated p-2',
-        'group',
-      )}
-    >
+    <div className="sticky left-0 z-10 group flex items-start gap-2 border-b border-r border-border bg-bg-elevated p-2">
+      <button
+        type="button"
+        aria-label={row.collapsed ? 'Expand row' : 'Collapse row'}
+        onClick={onCollapseToggle}
+        className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text"
+      >
+        {row.collapsed ? (
+          <ChevronRight size={14} strokeWidth={1.5} aria-hidden />
+        ) : (
+          <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
+        )}
+      </button>
       <span aria-hidden className={cn('mt-2 h-2 w-2 shrink-0 rounded-full', dot)} />
       <div className="flex-1 min-w-0">
         {editing ? (
@@ -87,38 +97,81 @@ export function RowHeader({ row, isFirst, isLast, canDelete, onRename, onDelete,
           </button>
         )}
       </div>
-      <div className="flex flex-col items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={() => onMove(-1)}
-          disabled={isFirst}
-          aria-label="Move row up"
-          className="text-text-muted hover:text-text disabled:opacity-30"
-        >
-          <ChevronUp size={14} strokeWidth={1.5} aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={() => onMove(1)}
-          disabled={isLast}
-          aria-label="Move row down"
-          className="text-text-muted hover:text-text disabled:opacity-30"
-        >
-          <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
-        </button>
-        {canDelete && (
+      <OptionsPopover
+        align="end"
+        trigger={({ open, onClick }) => (
           <button
             type="button"
-            onClick={() => {
-              if (confirm(`Delete row "${row.title}" and all its cards?`)) onDelete();
-            }}
-            aria-label="Delete row"
-            className="mt-1 text-text-muted hover:text-danger"
+            aria-label="Row options"
+            aria-expanded={open}
+            onClick={onClick}
+            className={cn(
+              'inline-flex h-6 w-6 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text',
+              !open && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            )}
           >
-            <Trash2 size={14} strokeWidth={1.5} aria-hidden />
+            <MoreHorizontal size={14} strokeWidth={1.5} aria-hidden />
           </button>
         )}
-      </div>
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => onMove(-1)}
+              disabled={isFirst}
+              aria-label="Move row up"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ChevronUp size={14} strokeWidth={1.5} aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(1)}
+              disabled={isLast}
+              aria-label="Move row down"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
+            </button>
+            <span className="text-xs text-text-muted">Reorder</span>
+          </div>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="text-xs text-text-muted">Color</legend>
+            <div className="flex flex-wrap gap-1">
+              {SWATCH_COLORS.map((c) => {
+                const active = (row.color ?? 'slate') === c;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={c}
+                    aria-pressed={active}
+                    onClick={() => onColorChange(c)}
+                    className={cn(
+                      'h-5 w-5 rounded-full ring-1 ring-transparent transition-shadow',
+                      SWATCH_BG[c],
+                      active ? 'ring-2 ring-text/50' : 'hover:ring-text/20',
+                    )}
+                  />
+                );
+              })}
+            </div>
+          </fieldset>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`Delete row "${row.title}" and all its cards?`)) onDelete();
+              }}
+              className="inline-flex h-8 items-center gap-2 rounded-sm px-2 text-sm text-text-muted hover:bg-surface hover:text-danger"
+            >
+              <Trash2 size={14} strokeWidth={1.5} aria-hidden />
+              Delete row
+            </button>
+          )}
+        </div>
+      </OptionsPopover>
     </div>
   );
 }

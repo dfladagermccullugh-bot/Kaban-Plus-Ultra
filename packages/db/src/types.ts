@@ -41,8 +41,6 @@ export interface Database {
           title: string;
           description: string | null;
           cover_color: string | null;
-          row_order: string[];
-          col_order: string[];
           visibility: Visibility;
           share_token: string | null;
           created_at: string;
@@ -50,11 +48,9 @@ export interface Database {
         };
         Insert: Omit<
           Database['public']['Tables']['boards']['Row'],
-          'id' | 'created_at' | 'updated_at' | 'row_order' | 'col_order'
+          'id' | 'created_at' | 'updated_at'
         > & {
           id?: string;
-          row_order?: string[];
-          col_order?: string[];
           created_at?: string;
           updated_at?: string;
         };

@@ -22,13 +22,14 @@ create table boards (
   title         text not null,
   description   text,
   cover_color   text,                                 -- token name, not hex
-  row_order     uuid[] not null default '{}',         -- ordered ids of rows
-  col_order     uuid[] not null default '{}',         -- ordered ids of columns
   visibility    text not null default 'private',      -- 'private' | 'link' | 'shared'
   share_token   text unique,                          -- non-null iff visibility='link'
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+-- Canonical ordering lives in `rows.position` and `columns.position`
+-- (fractional indexing via @kpu/core). Migration 0002 dropped the legacy
+-- `row_order` / `col_order` arrays. See ADR 0004.
 
 create table board_collaborators (
   board_id    uuid not null references boards(id) on delete cascade,

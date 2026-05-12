@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 2 in progress — board CRUD, the 2D grid, row/column reorder and dnd-kit card drag are live on the working branch. Virtualization and zoom are still open.
+**Current phase:** Phase 2 nearly done — board CRUD, the 2D grid, dnd-kit card drag, row/column reorder + recolor + collapse + WIP limit, and ctrl/⌘-scroll zoom are live. Virtualization (≥200 cards) is the last open item before Phase 3.
 
 ---
 
@@ -42,12 +42,12 @@ Goal: the headline feature. Real swimlanes with drag-drop.
 - [x] Boards list page (`/boards`)
 - [x] Create / rename / delete board
 - [x] Board view (`/b/[id]`) with sticky row + column headers
-- [x] Rows: create, rename, reorder, delete (recolor + collapse still open)
-- [x] Columns: create, rename, reorder, delete (recolor + WIP limit still open)
+- [x] Rows: create, rename, recolor, reorder, collapse, delete
+- [x] Columns: create, rename, recolor, reorder, set WIP limit (+ over-limit badge), delete
 - [x] Cards: quick create, drag-drop across cells (dnd-kit + fractional indexing), inline rename, delete
 - [x] Optimistic mutations via TanStack Query (card moves) + `useTransition` (CRUD)
 - [ ] Virtualization for boards > 200 cards (`@tanstack/react-virtual`)
-- [ ] Pinch / ctrl-scroll zoom (zoom level persisted per board)
+- [x] Ctrl/⌘-scroll zoom (zoom level persisted per board in `localStorage`); pinch deferred until Capacitor (Phase 5)
 
 ## Phase 3 — Card editor + images + labels
 

@@ -37,24 +37,15 @@ export async function createBoard(formData: FormData): Promise<void> {
     .single();
   if (boardErr || !board) throw new Error(boardErr?.message ?? 'Failed to create board.');
 
-  const { data: row, error: rowErr } = await supabase
+  const { error: rowErr } = await supabase
     .from('rows')
-    .insert({ board_id: board.id, title: 'To do', color: 'slate', position: 0 })
-    .select('id')
-    .single();
-  if (rowErr || !row) throw new Error(rowErr?.message ?? 'Failed to create row.');
+    .insert({ board_id: board.id, title: 'To do', color: 'slate', position: 0 });
+  if (rowErr) throw new Error(rowErr.message);
 
-  const { data: col, error: colErr } = await supabase
+  const { error: colErr } = await supabase
     .from('columns')
-    .insert({ board_id: board.id, title: 'Now', color: 'indigo', position: 0 })
-    .select('id')
-    .single();
-  if (colErr || !col) throw new Error(colErr?.message ?? 'Failed to create column.');
-
-  await supabase
-    .from('boards')
-    .update({ row_order: [row.id], col_order: [col.id] })
-    .eq('id', board.id);
+    .insert({ board_id: board.id, title: 'Now', color: 'indigo', position: 0 });
+  if (colErr) throw new Error(colErr.message);
 
   revalidatePath('/boards');
   redirect(`/b/${board.id}`);

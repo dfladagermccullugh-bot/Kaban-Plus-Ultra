@@ -46,7 +46,7 @@ pnpm dev                        # starts apps/web on http://localhost:3000
 ### Branches
 
 - One branch per feature / phase task.
-- `claude/kanban-plus-ultra-dev-VNoFa` is the current dev integration branch for AI sessions.
+- AI sessions push to per-session branches named `claude/kaban-plus-ultra-dev-<id>` (the harness assigns the suffix). Most recent: `claude/kaban-plus-ultra-dev-8Vmfo` (Phase 3).
 - `main` is protected; merges via PR only.
 
 ### Commits

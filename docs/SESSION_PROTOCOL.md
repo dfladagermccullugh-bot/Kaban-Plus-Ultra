@@ -38,9 +38,9 @@ The literal checklists every agent session follows. No skipping.
    ```
    feat(board): add row collapse animation
    ```
-6. Push:
+6. Push to the branch the harness assigned you (named in the system prompt). Never push to `main`.
    ```bash
-   git push -u origin claude/kanban-plus-ultra-dev-VNoFa
+   git push -u origin "$(git branch --show-current)"
    ```
 
 ## SESSION_LOG entry template
@@ -51,7 +51,7 @@ Copy/paste this into `docs/SESSION_LOG.md` and fill in:
 ## YYYY-MM-DD — <one-line summary>
 
 - **Agent / model**: Claude Opus 4.7 (or Codex / Gemini if delegated)
-- **Branch**: `claude/kanban-plus-ultra-dev-VNoFa`
+- **Branch**: `claude/kaban-plus-ultra-dev-<id>` (use the one the harness assigned this session)
 - **Phase**: 2 (Board CRUD + 2D grid)
 
 ### Goal

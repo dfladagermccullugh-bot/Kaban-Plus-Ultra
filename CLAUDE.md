@@ -35,8 +35,14 @@ See `docs/VISION.md` for the full backstory.
 
 ## Branch & PR conventions
 
-- Active branch: `claude/kanban-plus-ultra-dev-VNoFa` (the canonical dev branch for this work; supersedes the earlier `claude/chat-analysis-app-2fsuX` name).
-- As of the last handoff, the working branch tip **equals `main`** (both at `e593f65`, the merge of PR #5). New work stacks cleanly on top.
+- Active branch: harness-assigned per session (recent names:
+  `claude/kaban-phase-3-continue-Dm3T6`, `claude/kaban-plus-ultra-dev-8Vmfo`,
+  `claude/kanban-plus-ultra-dev-VNoFa`). Always push only to whichever branch
+  the system prompt assigns this session.
+- As of the last handoff, the Phase 4 commit (`6e4015d`,
+  feat(realtime): per-board Realtime channel + presence avatars) lives on
+  `claude/kaban-phase-3-continue-Dm3T6` and has **not** been merged to `main`.
+  Phase 3 (`0ef1dd6`) is already on `main` via PR #7 (merge `865bbac`).
 - Commits: [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat(board): add row collapse`)
 - Push at the end of every session. Do NOT open PRs unless explicitly asked.
 

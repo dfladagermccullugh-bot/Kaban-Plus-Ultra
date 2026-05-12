@@ -29,6 +29,10 @@ import {
   renameCard,
   renameColumn,
   renameRow,
+  setColumnColor,
+  setColumnWipLimit,
+  setRowCollapsed,
+  setRowColor,
 } from './actions';
 import { CardItem } from './card-item';
 import { ColumnHeader } from './column-header';
@@ -97,6 +101,43 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
       router.refresh();
     },
   });
+
+  // ─── Zoom (ctrl/⌘ + scroll), persisted per board ─────────────────────────
+  const ZOOM_KEY = `kpu.board.${boardId}.zoom`;
+  const [zoom, setZoom] = useState(1);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ZOOM_KEY);
+      if (raw) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= 0.5 && n <= 1.5) setZoom(n);
+      }
+    } catch {
+      // ignore — private mode, etc.
+    }
+  }, [ZOOM_KEY]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setZoom((prev) => {
+        const next = Math.min(1.5, Math.max(0.5, prev - e.deltaY * 0.0015));
+        try {
+          window.localStorage.setItem(ZOOM_KEY, String(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    }
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [ZOOM_KEY]);
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
@@ -251,6 +292,30 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
     });
   }
 
+  function handleRowColorChange(rowId: string, color: string) {
+    const original = rows.find((r) => r.id === rowId);
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, color } : r)));
+    startTransition(async () => {
+      const result = await setRowColor(boardId, rowId, color);
+      if (!result.ok && original) {
+        setRows((prev) => prev.map((r) => (r.id === rowId ? original : r)));
+      }
+    });
+  }
+
+  function handleRowCollapseToggle(rowId: string) {
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    const next = !row.collapsed;
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, collapsed: next } : r)));
+    startTransition(async () => {
+      const result = await setRowCollapsed(boardId, rowId, next);
+      if (!result.ok) {
+        setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, collapsed: !next } : r)));
+      }
+    });
+  }
+
   function handleMoveRow(rowId: string, direction: -1 | 1) {
     const idx = sortedRows.findIndex((r) => r.id === rowId);
     if (idx < 0) return;
@@ -311,6 +376,28 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
     });
   }
 
+  function handleColumnColorChange(columnId: string, color: string) {
+    const original = columns.find((c) => c.id === columnId);
+    setColumns((prev) => prev.map((c) => (c.id === columnId ? { ...c, color } : c)));
+    startTransition(async () => {
+      const result = await setColumnColor(boardId, columnId, color);
+      if (!result.ok && original) {
+        setColumns((prev) => prev.map((c) => (c.id === columnId ? original : c)));
+      }
+    });
+  }
+
+  function handleColumnWipLimitChange(columnId: string, wipLimit: number | null) {
+    const original = columns.find((c) => c.id === columnId);
+    setColumns((prev) => prev.map((c) => (c.id === columnId ? { ...c, wip_limit: wipLimit } : c)));
+    startTransition(async () => {
+      const result = await setColumnWipLimit(boardId, columnId, wipLimit);
+      if (!result.ok && original) {
+        setColumns((prev) => prev.map((c) => (c.id === columnId ? original : c)));
+      }
+    });
+  }
+
   function handleMoveColumn(columnId: string, direction: -1 | 1) {
     const idx = sortedColumns.findIndex((c) => c.id === columnId);
     if (idx < 0) return;
@@ -329,13 +416,21 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
 
   const activeCard = activeCardId ? (cards.find((c) => c.id === activeCardId) ?? null) : null;
 
+  const columnCardCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of cards) counts.set(c.column_id, (counts.get(c.column_id) ?? 0) + 1);
+    return counts;
+  }, [cards]);
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         <div
-          className="grid min-w-max"
+          className="grid min-w-max origin-top-left"
           style={{
             gridTemplateColumns: `12rem repeat(${sortedColumns.length}, minmax(16rem, 1fr)) auto`,
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top left',
           }}
         >
           {/* Top-left corner */}
@@ -349,9 +444,12 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
               isFirst={idx === 0}
               isLast={idx === sortedColumns.length - 1}
               canDelete={sortedColumns.length > 1}
+              cardCount={columnCardCounts.get(column.id) ?? 0}
               onRename={(title) => handleRenameColumn(column.id, title)}
               onDelete={() => handleDeleteColumn(column.id)}
               onMove={(direction) => handleMoveColumn(column.id, direction)}
+              onColorChange={(color) => handleColumnColorChange(column.id, color)}
+              onWipLimitChange={(limit) => handleColumnWipLimitChange(column.id, limit)}
             />
           ))}
 
@@ -380,6 +478,8 @@ export function BoardView({ boardId, initialRows, initialColumns, initialCards }
               onRowRename={(title) => handleRenameRow(row.id, title)}
               onRowDelete={() => handleDeleteRow(row.id)}
               onRowMove={(direction) => handleMoveRow(row.id, direction)}
+              onRowColorChange={(color) => handleRowColorChange(row.id, color)}
+              onRowCollapseToggle={() => handleRowCollapseToggle(row.id)}
               onCardCreate={(columnId, title) => handleCreateCard(row.id, columnId, title)}
               onCardRename={handleRenameCard}
               onCardDelete={handleDeleteCard}
@@ -424,6 +524,8 @@ type RowSliceProps = {
   onRowRename: (title: string) => void;
   onRowDelete: () => void;
   onRowMove: (direction: -1 | 1) => void;
+  onRowColorChange: (color: string) => void;
+  onRowCollapseToggle: () => void;
   onCardCreate: (columnId: string, title: string) => void;
   onCardRename: (cardId: string, title: string) => void;
   onCardDelete: (cardId: string) => void;
@@ -439,6 +541,8 @@ function RowSlice({
   onRowRename,
   onRowDelete,
   onRowMove,
+  onRowColorChange,
+  onRowCollapseToggle,
   onCardCreate,
   onCardRename,
   onCardDelete,
@@ -453,20 +557,45 @@ function RowSlice({
         onRename={onRowRename}
         onDelete={onRowDelete}
         onMove={onRowMove}
+        onColorChange={onRowColorChange}
+        onCollapseToggle={onRowCollapseToggle}
       />
-      {columns.map((column) => (
-        <Cell
-          key={`${row.id}:${column.id}`}
-          rowId={row.id}
-          columnId={column.id}
-          cards={cards.get(`${row.id}:${column.id}`) ?? []}
-          onCardCreate={(title) => onCardCreate(column.id, title)}
-          onCardRename={onCardRename}
-          onCardDelete={onCardDelete}
-        />
-      ))}
+      {row.collapsed
+        ? columns.map((column) => {
+            const cell = cards.get(`${row.id}:${column.id}`) ?? [];
+            return (
+              <CollapsedCell
+                key={`${row.id}:${column.id}`}
+                count={cell.length}
+                onExpand={onRowCollapseToggle}
+              />
+            );
+          })
+        : columns.map((column) => (
+            <Cell
+              key={`${row.id}:${column.id}`}
+              rowId={row.id}
+              columnId={column.id}
+              cards={cards.get(`${row.id}:${column.id}`) ?? []}
+              onCardCreate={(title) => onCardCreate(column.id, title)}
+              onCardRename={onCardRename}
+              onCardDelete={onCardDelete}
+            />
+          ))}
       <div className="border-b border-border" />
     </>
+  );
+}
+
+function CollapsedCell({ count, onExpand }: { count: number; onExpand: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      className="flex h-8 items-center justify-start border-b border-r border-border bg-surface/40 px-3 text-xs text-text-muted hover:bg-surface"
+    >
+      {count === 0 ? '—' : `${count} card${count === 1 ? '' : 's'}`}
+    </button>
   );
 }
 

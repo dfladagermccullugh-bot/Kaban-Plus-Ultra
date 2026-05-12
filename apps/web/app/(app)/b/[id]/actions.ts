@@ -198,6 +198,38 @@ export async function moveRow(
   }
 }
 
+export async function setRowColor(
+  boardId: string,
+  rowId: string,
+  color: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('rows').update({ color }).eq('id', rowId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function setRowCollapsed(
+  boardId: string,
+  rowId: string,
+  collapsed: boolean,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('rows').update({ collapsed }).eq('id', rowId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
 export async function deleteRow(boardId: string, rowId: string): Promise<ActionResult> {
   try {
     const { supabase } = await authedClient();
@@ -271,6 +303,44 @@ export async function moveColumn(
   try {
     const { supabase } = await authedClient();
     const { error } = await supabase.from('columns').update({ position }).eq('id', columnId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function setColumnColor(
+  boardId: string,
+  columnId: string,
+  color: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await authedClient();
+    const { error } = await supabase.from('columns').update({ color }).eq('id', columnId);
+    if (error) return { ok: false, error: error.message };
+    bumpBoard(boardId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
+  }
+}
+
+export async function setColumnWipLimit(
+  boardId: string,
+  columnId: string,
+  wipLimit: number | null,
+): Promise<ActionResult> {
+  try {
+    if (wipLimit !== null && (!Number.isInteger(wipLimit) || wipLimit < 1 || wipLimit > 999)) {
+      return { ok: false, error: 'WIP limit must be an integer between 1 and 999.' };
+    }
+    const { supabase } = await authedClient();
+    const { error } = await supabase
+      .from('columns')
+      .update({ wip_limit: wipLimit })
+      .eq('id', columnId);
     if (error) return { ok: false, error: error.message };
     bumpBoard(boardId);
     return { ok: true };

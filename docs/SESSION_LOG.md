@@ -4,6 +4,73 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 2 polish: row collapse + recolor, WIP limits, ctrl-scroll zoom, schema cleanup
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kanban-plus-ultra-dev-VNoFa`
+- **Phase**: 2 (Board CRUD + 2D grid) — closing out the polish items. Virtualization is the only remaining checkbox.
+
+### Goal
+Close out Phase 2: drop the redundant `boards.row_order` / `col_order` arrays, finish row collapse + recolor, column recolor + WIP limit, and add ctrl/⌘-scroll zoom with per-board persistence.
+
+### Changed
+**Schema** (`supabase/migrations/`)
+- `0002_drop_board_orders.sql` — drops `boards.row_order` and `boards.col_order`; rewrites `on_auth_user_created` to stop populating them. ADR 0004 records why.
+- `docs/DATA_MODEL.md` — synced `boards` table definition.
+
+**Types + actions** (`packages/db`, `apps/web/app/(app)/b/[id]`)
+- `packages/db/src/types.ts` — removed `row_order` / `col_order` from `boards`.
+- `apps/web/app/(app)/boards/actions.ts:createBoard` — no longer writes the dropped columns; still seeds a default row + column.
+- `apps/web/app/(app)/b/[id]/actions.ts` — new server actions: `setRowColor`, `setRowCollapsed`, `setColumnColor`, `setColumnWipLimit` (with 1–999 integer validation).
+
+**Header UI** (`apps/web/app/(app)/b/[id]/`)
+- `options-popover.tsx` — small click-outside / Escape-aware popover primitive (no extra deps).
+- `swatches.ts` — single source for the 8-color palette + Tailwind class map; used by row + column headers.
+- `row-header.tsx` — full rewrite. Adds a leading collapse chevron, click-to-edit title, and a `MoreHorizontal` popover with reorder buttons, 8 color swatches, and "Delete row". Delete still confirms.
+- `column-header.tsx` — full rewrite. Adds an inline `{count}/{limit}` chip that highlights danger when over the WIP limit, plus a popover with reorder, color swatches, a numeric WIP limit input (blur-or-Enter commit), and "Delete column".
+- `board-view.tsx` —
+  - Wires the new handlers (`handleRowColorChange`, `handleRowCollapseToggle`, `handleColumnColorChange`, `handleColumnWipLimitChange`) through `RowSlice` and the headers.
+  - Renders a `CollapsedCell` strip showing `N card(s)` when a row is collapsed; clicking it expands the row back.
+  - Computes per-column card counts and threads them into `ColumnHeader` for the WIP chip.
+  - Adds **ctrl/⌘-scroll zoom**: a non-passive `wheel` listener on the scroll container scales the grid via CSS `transform`, clamped to 0.5–1.5, debounced to `localStorage[kpu.board.<id>.zoom]`. Pinch is deferred until the Capacitor shell (Phase 5).
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (62 files clean)
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core` still green; no new unit tests this session)
+- `pnpm build` ✅
+  - `/b/[id]` 22.6 kB / 144 kB First Load JS (up from 20.8 kB / 142 kB)
+  - `/boards`, `/profile`, middleware unchanged
+- Manual: not exercised against Supabase this session (still local-env-missing); SSR pages redirect to `/sign-in` as designed.
+
+### ADRs added
+- `docs/DECISIONS/0004-canonical-ordering.md` — `position` (fractional) is the single source of truth for row/column/card order; `boards.row_order` / `col_order` are gone.
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **No popover library**: a 35-line `OptionsPopover` (mousedown-outside + Escape) is enough for our needs. Reconsider if Phase 3 needs combo-box or anchored menus.
+- **WIP limit validation**: integer 1–999, blur-or-Enter to commit, empty input clears the limit. Server action mirrors the bounds.
+- **Zoom range 0.5–1.5**: enough to show ~5–6 columns on a 15" laptop screen. We use CSS `transform: scale()` on the grid wrapper; sticky headers continue to work because the scroll container is the parent. Pinch needs `@capacitor/gestures` and lands with the mobile shell in Phase 5.
+- **Collapse rendering**: collapsed rows render a single 32 px strip per cell showing card count; clicking the strip expands the row. The row header stays full-height for affordance.
+
+### Next up
+**Finish Phase 2, then start Phase 3.**
+1. Virtualization for cells with > 50 cards (`@tanstack/react-virtual` per-cell list). Defer the cross-cell case until we hit a real board that needs it.
+2. Phase 3 kickoff:
+   - Tiptap markdown editor in a modal (`/b/[id]/c/[cardId]` parallel route?) with 600 ms auto-save and the "saved" pulse.
+   - Image paste / drag-drop → Supabase Storage (`images` table already in 0001) → blurhash placeholder.
+   - Labels: CRUD + multi-select + filter bar above the grid.
+3. Apply `0002_drop_board_orders.sql` when the user provisions Supabase; until then, generated types stay manual.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 + 0002 need a `supabase db reset` once the user spins up a project. No code blocked.
+- **Tailwind v4 beta** still at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-12 — Phase 2: boards CRUD, 2D grid, dnd-kit card drag
 
 - **Agent / model**: Claude (Opus 4.7)

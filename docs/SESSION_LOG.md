@@ -4,6 +4,79 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 1: auth (magic link + Google OAuth), session middleware, profile editor
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/chat-analysis-app-2fsuX`
+- **Phase**: 1 (Auth + Profile) — complete locally; avatar upload deferred to Phase 3
+
+### Goal
+Ship the full Phase 1 auth flow: Supabase SSR client trio, route-gating
+middleware, `/sign-in` (magic link + Google OAuth), `/auth/callback`,
+`/sign-out`, and a `/profile` editor for display name and accent color.
+
+### Changed
+**Auth wiring** (`apps/web/lib/supabase/`)
+- `browser.ts` — `createBrowserClient` for Client Components
+- `server.ts` — `createServerClient` for Server Components / Route Handlers (cookie store from `next/headers`)
+- `middleware.ts` — `updateSession()` for the Next middleware, with env-missing pass-through for local dev
+- Helper: `lib/auth.ts` — `getCurrentUser()` returns the authed user + profile or `null`; graceful when env is unset
+- Helper: `lib/env.ts` — read-once env getters with clear error messages
+
+**Routes**
+- `apps/web/middleware.ts` — refresh session + gate non-public paths to `/sign-in?next=...`
+- `app/sign-in/page.tsx` + `sign-in-form.tsx` — magic-link form, Google OAuth button, "check your inbox" success state
+- `app/auth/callback/route.ts` — exchanges `?code=...` for a session cookie, redirects to `next` or `/boards`
+- `app/sign-out/route.ts` — POST → `signOut()` → redirect home
+- `app/profile/page.tsx` + `profile-form.tsx` + `actions.ts` + `accent-colors.ts` — display name (1–80 chars) + 8-preset accent picker via Server Action
+- `app/(app)/boards/page.tsx` — protected landing post-auth (stub for Phase 2)
+- `app/page.tsx` — landing page now switches CTA between "Sign in" and "Go to boards" based on session
+
+**Shared UI** (`packages/ui/`)
+- `Input` and `Label` primitives (radius/focus/disabled tokens matching the design system)
+- Exported from `@kpu/ui` + per-component subpath exports
+
+**Deps**: added `@supabase/ssr@0.5.2` to `apps/web`.
+
+### Verified
+- `pnpm lint` ✅
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core` still passing)
+- `pnpm build` ✅ — routes built: `/`, `/sign-in`, `/auth/callback`, `/sign-out`, `/boards`, `/profile`, plus middleware (62.4 kB)
+- `next start` smoke (port 3002):
+  - `/` → 200, "Sign in" CTA visible
+  - `/sign-in` → 200, magic-link form + Google button rendered
+  - `/boards` (unauthed) → 307 → `/sign-in?next=/boards`
+  - `/profile` (unauthed) → 307 → `/sign-in?next=/profile`
+  - `/auth/callback` (no code) → 307 → `/sign-in?error=missing_code`
+
+### ADRs added
+- `docs/DECISIONS/0002-auth-with-supabase-ssr.md` — choice of `@supabase/ssr` + cookie sessions; gracefully passes through when local env is unset.
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Env-missing graceful path**: middleware short-circuits when `NEXT_PUBLIC_SUPABASE_URL` is unset so marketing surfaces still render during local scaffolding. Documented in ADR 0002 and `lib/supabase/middleware.ts`.
+- **Avatar upload deferred to Phase 3**: requires Storage bucket setup (`avatars`). Profile page noted "Email and avatar come later."
+- **`useSemanticElements` rule** stays disabled (from Phase 0) — same justification applies to the accent-color radiogroup.
+
+### Next up
+**Phase 2 — Board CRUD + 2D grid.** Concretely:
+1. `/boards` should list the user's owned + shared boards (currently a static greeting). Query: `select id, title, cover_color, updated_at from boards order by updated_at desc`.
+2. "New board" button → server action that inserts a row and redirects to `/b/[id]`.
+3. `/b/[id]` board view with sticky row + column headers; load rows, columns, cards in parallel.
+4. Drag-drop cards across cells using **dnd-kit** (custom 2D collision detection) + fractional indexing from `@kpu/core` (`positionBetween`, `needsRebalance`).
+5. Optimistic mutations via TanStack Query.
+6. Row/column CRUD with reorder.
+7. Tick the Phase 2 checkboxes in `ROADMAP.md`.
+
+### Blockers / open questions
+- **Supabase provisioning**: still local-only. To exercise auth end-to-end (real magic link emails, Google OAuth callback), provision a Supabase project or run `supabase start` and configure Google OAuth in the dashboard. Code changes are not blocked.
+- **TanStack Query**: not yet added — will land at the top of Phase 2 since cards need optimistic mutations.
+
+---
+
 ## 2026-05-12 — Phase 0 scaffolding: monorepo, Next.js 15 app, first migration, green CI baseline
 
 - **Agent / model**: Claude (Opus 4.7)

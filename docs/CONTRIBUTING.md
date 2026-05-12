@@ -91,6 +91,8 @@ Scope is the package or area (`web`, `core`, `db`, `ui`, `mobile`, `docker`, `do
 |---|---|
 | Routes, pages, route handlers | `apps/web/app/` |
 | React components for the web app | `apps/web/components/` |
+| App-scoped helpers (env, Supabase clients, auth) | `apps/web/lib/` |
+| Auth middleware | `apps/web/middleware.ts` (+ `lib/supabase/middleware.ts`) |
 | Shared design-system components | `packages/ui/` |
 | Domain logic (board model, markdown, ordering) | `packages/core/` |
 | Supabase client + types + RLS policy SQL | `packages/db/` |
@@ -99,3 +101,14 @@ Scope is the package or area (`web`, `core`, `db`, `ui`, `mobile`, `docker`, `do
 | Capacitor shell | `apps/mobile/` |
 | Self-host bundle | `docker/` |
 | All docs | `docs/` |
+
+## Auth routes (Phase 1)
+
+- `/sign-in` — magic-link form + Google OAuth button (Client Component)
+- `/auth/callback` — exchanges Supabase `?code=...` for a session cookie, redirects to `?next=`
+- `/sign-out` — POST endpoint; calls `auth.signOut()` then redirects home
+- `/profile` — Server Component fetches profile via `getCurrentUser()`; Server Action `updateProfile` saves changes
+
+Use `getCurrentUser()` from `@/lib/auth` in any Server Component that needs the
+user. It returns `null` when signed-out **or** when Supabase env is missing
+locally, so dev scaffolding doesn't crash.

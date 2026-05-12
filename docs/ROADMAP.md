@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 0 (Scaffolding) — **complete locally**, awaiting CI confirmation. Phase 1 (Auth + Profile) is next.
+**Current phase:** Phase 1 (Auth + Profile) **complete locally**. Phase 2 (Board CRUD + 2D grid) is next.
 
 ---
 
@@ -23,16 +23,17 @@ Goal: a green CI baseline + every doc in place so any future session has full co
 - [x] Local green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` — all pass; dev server boots and serves the landing page
 - [ ] CI green on `claude/chat-analysis-app-2fsuX` (verify after push)
 
-## Phase 1 — Auth + Profile
+## Phase 1 — Auth + Profile ✦ complete (avatar deferred to phase 3)
 
 Goal: sign in, sign out, edit profile.
 
-- [ ] Email magic link sign-in
-- [ ] Google OAuth sign-in
-- [ ] `on_auth_user_created` trigger seeds profile + demo board
-- [ ] Protected route middleware
-- [ ] `/profile` page (display name, avatar upload, accent color)
-- [ ] Sign-out flow + session persistence
+- [x] Email magic link sign-in (`/sign-in` form → Supabase `signInWithOtp`)
+- [x] Google OAuth sign-in (`signInWithOAuth({ provider: 'google' })`)
+- [x] `on_auth_user_created` trigger seeds profile + demo board (in `supabase/migrations/0001_init.sql`)
+- [x] Protected route middleware (`apps/web/middleware.ts` + `lib/supabase/middleware.ts`)
+- [x] `/profile` page (display name + accent color, server action)
+- [x] Sign-out flow (`/sign-out` POST handler) + session persistence (HTTP-only cookies via `@supabase/ssr`)
+- [ ] Avatar upload (deferred to Phase 3 when Supabase Storage buckets are created)
 
 ## Phase 2 — Board CRUD + 2D grid
 

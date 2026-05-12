@@ -3,11 +3,11 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 1 (Auth + Profile) **complete locally**. Phase 2 (Board CRUD + 2D grid) is next.
+**Current phase:** Phase 1 ✅ complete and merged to `main` (PR #2). Phase 2 (Board CRUD + 2D grid) is next.
 
 ---
 
-## Phase 0 — Scaffolding ✦ complete (pending CI)
+## Phase 0 — Scaffolding ✦ complete (merged to main)
 
 Goal: a green CI baseline + every doc in place so any future session has full context.
 
@@ -21,9 +21,9 @@ Goal: a green CI baseline + every doc in place so any future session has full co
 - [x] Vitest skeleton green (13 tests in `@kpu/core`)
 - [x] GitHub Actions workflow: typecheck + test + lint + build on push
 - [x] Local green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` — all pass; dev server boots and serves the landing page
-- [ ] CI green on `claude/chat-analysis-app-2fsuX` (verify after push)
+- [x] Merged to `main` (PR #2)
 
-## Phase 1 — Auth + Profile ✦ complete (avatar deferred to phase 3)
+## Phase 1 — Auth + Profile ✦ complete, merged to main (avatar deferred to phase 3)
 
 Goal: sign in, sign out, edit profile.
 

@@ -4,6 +4,59 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Handoff: PR #2 merged, main + working branch synced
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/chat-analysis-app-2fsuX`
+- **Phase**: 1 (complete) → 2 (next)
+
+### Goal
+Land Phase 0 + Phase 1 work on `main` and produce a clean handoff for the next session.
+
+### Changed
+- Opened/updated PR #2 (`claude/chat-analysis-app-2fsuX` → `main`) with a full summary; user merged it via GitHub UI.
+- Locally fast-forwarded `claude/chat-analysis-app-2fsuX` onto `origin/main` so the working branch tip equals main exactly.
+- Doc touch-ups in this entry, `ROADMAP.md` (status cleanup), and `CLAUDE.md` (sync note).
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅
+- `pnpm typecheck` ✅ (Turbo cache hit, 4/4 packages)
+- `pnpm test` ✅ (Turbo cache hit; 13 tests still green in `@kpu/core`)
+- `pnpm build` ✅ (Turbo cache hit)
+- `git status` clean; local and `origin` match for both `main` and the working branch.
+
+### Final git state
+| Branch | HEAD | Tracks |
+|---|---|---|
+| `main` (local + origin) | `7e7c5fb` *(merge of PR #2)* | ✅ in sync |
+| `claude/chat-analysis-app-2fsuX` (local + origin) | `7e7c5fb` | ✅ in sync, identical to main |
+
+The working branch is **exactly equal to main**. New work for Phase 2 stacks on top and will need a new PR.
+
+### ADRs added
+None this session.
+
+### Delegations
+None.
+
+### Next up
+**Phase 2 — Board CRUD + 2D grid.** Concretely (also in `ROADMAP.md`):
+1. Add **TanStack Query** to `apps/web` and wire a server component → client provider pattern.
+2. Turn `/boards` into a real list of the user's owned + shared boards (`select id, title, cover_color, updated_at from boards order by updated_at desc`).
+3. "New board" button → Server Action that inserts a `boards` row + a default row and column, then redirects to `/b/[id]`.
+4. `/b/[id]` with sticky row + column headers; load rows, columns, cards in parallel.
+5. **dnd-kit** for cross-cell card drag with custom 2D collision detection.
+6. Use `positionBetween()` / `needsRebalance()` from `@kpu/core` for ordering.
+7. Optimistic mutations via TanStack Query.
+8. Row + column CRUD with drag-reorder.
+
+### Blockers / open questions
+- **Supabase provisioning** is still local-only. Real magic-link emails and Google OAuth need a Supabase project. To unblock locally: `supabase start && supabase db reset` (the migration is already in place); then `cp .env.example .env.local` and fill in the URL/anon key. Not blocking code work.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`. Watch for stable.
+
+---
+
 ## 2026-05-12 — Phase 1: auth (magic link + Google OAuth), session middleware, profile editor
 
 - **Agent / model**: Claude (Opus 4.7)

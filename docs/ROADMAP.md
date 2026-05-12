@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 3 in progress — editor + images + labels landed on the working branch (commit pending). Virtualization (Phase 2 carry-over) and label-delete UX (no inline label-management page yet) are the remaining unticked items.
+**Current phase:** Phase 4 in progress — per-board Supabase Realtime channel and presence avatars are wired in BoardView; invites + share links are the next items. Virtualization (Phase 2 carry-over) and the label-management page are still open.
 
 ---
 
@@ -64,8 +64,8 @@ Goal: cards are real, expressive, with images.
 
 Goal: friends on the same board, live.
 
-- [ ] Realtime subscription per board (cards, rows, columns, labels)
-- [ ] Presence avatars in top-right
+- [x] Realtime subscription per board (cards, rows, columns, labels, card_labels, images) — migration 0004 enables the publication; `useBoardRealtime` merges incoming changes into BoardView state and locks the actively-dragged card against remote echoes
+- [x] Presence avatars in top-right (`presence:<boardId>` channel — initials + accent ring; self gets a thinner ring)
 - [ ] "X is editing" hint on cards open in another client
 - [ ] Invite collaborator by email (sends magic link with attached invite)
 - [ ] Role management (viewer / editor / admin)

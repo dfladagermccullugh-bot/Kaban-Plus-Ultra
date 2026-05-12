@@ -46,6 +46,7 @@ import type {
   LabelModel,
   RowModel,
 } from './types';
+import { useBoardRealtime } from './use-board-realtime';
 
 type Props = {
   boardId: string;
@@ -86,15 +87,25 @@ export function BoardView({
   const [rows, setRows] = useState<RowModel[]>(initialRows);
   const [columns, setColumns] = useState<ColumnModel[]>(initialColumns);
   const [cards, setCards] = useState<CardModel[]>(initialCards);
+  const [labels, setLabels] = useState<LabelModel[]>(initialLabels);
+  const [cardLabels, setCardLabels] = useState<CardLabelLink[]>(initialCardLabels);
+  const [images, setImages] = useState<ImageModel[]>(initialImages);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
 
-  // Labels, card-label links, and images are owned by the server: the modal
-  // mutates them and triggers `router.refresh()`. Read directly from props.
-  const labels = initialLabels;
-  const cardLabels = initialCardLabels;
-  const images = initialImages;
+  // While a card is being dragged locally, remote echoes of our optimistic
+  // move (or anyone else's stale state) must not snap it back.
+  useBoardRealtime({
+    boardId,
+    setCards,
+    setRows,
+    setColumns,
+    setLabels,
+    setCardLabels,
+    setImages,
+    isCardLocked: (cardId) => cardId === activeCardId,
+  });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 

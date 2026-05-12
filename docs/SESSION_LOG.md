@@ -4,6 +4,123 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 4 kickoff: per-board Realtime channel + presence avatars
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-phase-3-continue-Dm3T6` (session-assigned; stacks on
+  `main` at `865bbac`, the merge of PR #7 which carried Phase 3)
+- **Phase**: 4 (Realtime + sharing)
+
+### Goal
+Open Phase 4 with the two pieces every other shareable surface depends on:
+a per-board Supabase Realtime channel that merges remote changes into the
+existing optimistic state, and a presence channel that renders live avatars
+in the board header. Invite + share-link work stacks on top in the next
+session.
+
+### Changed
+
+**Schema** (`supabase/migrations/`)
+- `0004_realtime.sql` — adds `cards`, `rows`, `columns`, `labels`,
+  `card_labels`, `images` to the `supabase_realtime` publication. RLS
+  still gates which rows each subscriber receives; the publication only
+  controls which tables are *eligible* to emit. `boards`, `profiles`,
+  `audit_events`, `board_collaborators` are deliberately excluded — they
+  change rarely and the existing `router.refresh()` flow covers them.
+
+**Realtime hook** (`apps/web/app/(app)/b/[id]/use-board-realtime.ts`)
+- Subscribes to a single channel `board:<id>` with six
+  `postgres_changes` listeners, filtered by `board_id=eq.<id>` for the
+  five tables that carry it. `card_labels` is unfiltered because the
+  column lives on the joined `cards` row — RLS narrows reads, and the
+  merge is idempotent.
+- INSERT/UPDATE/DELETE merges into the existing setters. **UPDATE on a
+  card that is actively being dragged** preserves the local
+  `row_id` / `column_id` / `position` and accepts everything else, so a
+  remote echo of our own optimistic move can't yank the card mid-drag.
+- Fails closed when env is missing (catches `createClient()` and
+  silently no-ops); local dev without Supabase is unaffected.
+
+**Presence component**
+- `presence-avatars.tsx` — joins channel `presence:<id>` keyed on
+  `auth.uid()` (multiple tabs collapse to one avatar). Tracks
+  `{ id, displayName, accentColor, online_at }`. Renders up to 5 round
+  avatars (initials, accent background from the same 8-token palette as
+  `/profile`), with a `+N` overflow chip; the current user gets a
+  thinner ring.
+
+**Board surface**
+- `board-view.tsx` — lifts `labels` / `cardLabels` / `images` from
+  props-only to `useState`, calls `useBoardRealtime` with
+  `isCardLocked: (id) => id === activeCardId`. Drag start/end already
+  flip `activeCardId`, so the lock is automatic.
+- `page.tsx` — renders `<PresenceAvatars boardId me={...} />` next to
+  the theme toggle in the header. Falls back to email prefix +
+  `accent='indigo'` when the user's profile fields are unset.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 4 realtime + presence checkboxes ticked;
+  status line bumped.
+- `docs/DECISIONS/0006-realtime-and-presence.md` — added.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (77 files clean)
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core` still green)
+- `pnpm build` ✅
+  - `/b/[id]` 136 B / **183 kB** First Load JS (up from 144 kB — about
+    39 kB for the realtime client + presence avatar tracking)
+  - `/b/[id]/c/[cardId]` direct + intercept routes unchanged at 262 kB
+- Manual: not exercised against Supabase — local env still missing
+  keys; SSR redirects to `/sign-in`. The hook silently no-ops in that
+  state so the build / SSR path stays green.
+
+### ADRs added
+- `docs/DECISIONS/0006-realtime-and-presence.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Drag-lock granularity**: only `activeCardId` is gated. Row /
+  column / label / image UPDATEs always apply; we don't currently drag
+  any of those (row + column reorder uses ▲/▼ buttons), and label edits
+  are mediated by the modal which already does its own `router.refresh`.
+- **Presence payload is profile-derived, not session-derived**: we send
+  `{ id, displayName, accentColor }` not `{ session_id, ... }` so that
+  multiple tabs from the same user merge into one avatar. The "X is
+  editing" hint in `ROADMAP.md` is the natural follow-up that would
+  reintroduce per-tab tracking.
+- **No `boards` row in the publication**: title/cover updates from
+  collaborators don't reach other clients live yet. Cheap to add when
+  needed; left out for now to keep the surface minimal.
+
+### Next up
+1. **Invite collaborator by email**: server action that calls
+   `auth.admin.inviteUserByEmail` (service role, server-only) and
+   inserts a `board_collaborators` row keyed on the resulting user. UI
+   in board settings; role select (viewer / editor / admin).
+2. **Public read-only share links**: generate / rotate / revoke
+   `boards.share_token`; anonymous reads use the `x-share-token` header
+   that's already covered by RLS.
+3. **"X is editing" hint**: when another presence-tracked user has the
+   card-edit modal open, surface a small "Editing now: <name>" banner.
+   Requires presence to carry a `viewing_card_id` and the avatar
+   component to expose that.
+4. **Label management page** (carry-over): rename / recolor / delete UI.
+5. **Virtualization** (Phase 2 carry-over): `@tanstack/react-virtual`
+   per-cell once a real board hits 50+ cards.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 → 0004
+  must all be applied before the live surface lights up.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`. No change.
+- **Modal bundle size** unchanged from Phase 3 (262 kB First Load JS for
+  the card editor route).
+
+---
+
 ## 2026-05-12 — Phase 3 kickoff: Tiptap modal, image upload, labels + filter bar
 
 - **Agent / model**: Claude (Opus 4.7)

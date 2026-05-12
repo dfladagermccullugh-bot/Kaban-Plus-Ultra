@@ -4,6 +4,83 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Phase 2: boards CRUD, 2D grid, dnd-kit card drag
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kanban-plus-ultra-dev-VNoFa` (stacks on top of `main` from PR #2)
+- **Phase**: 2 (Board CRUD + 2D grid) — core feature surface complete; virtualization + zoom still open
+
+### Goal
+Land the headline Phase 2 surface: real `/boards` list with create/rename/delete, the `/b/[id]` 2D grid with sticky row + column headers, dnd-kit cross-cell card drag with fractional positions, and row/column CRUD with reorder.
+
+### Changed
+**Provider wiring** (`apps/web/`)
+- `components/query-provider.tsx` — TanStack Query `QueryClient` provider, 30 s staleTime, no refetch-on-focus.
+- `app/layout.tsx` — wraps the tree in `QueryProvider` inside `ThemeProvider`.
+
+**Boards list** (`apps/web/app/(app)/boards/`)
+- `page.tsx` — replaced the Phase 1 greeting with a real list. Server fetch via `supabase.from('boards').select('id, title, cover_color, updated_at').order('updated_at', { ascending: false })`. Renders an empty-state card or a 1–3 column grid of board cards.
+- `actions.ts` — `createBoard` (inserts board + default row + default column, redirects to `/b/[id]`), `renameBoard`, `deleteBoard`. All gated on `auth.getUser()`.
+- `new-board-form.tsx` — inline expand-to-input "New board" button → Server Action.
+- `board-card.tsx` — cover swatch, click-through link, inline rename, confirm-delete; `useTransition` for optimistic UI.
+
+**Board view** (`apps/web/app/(app)/b/[id]/`)
+- `page.tsx` — server component; parallel fetches `boards`, `rows`, `columns`, `cards` for the requested board. 404 if board is unreadable (RLS-filtered). Sticky header bar with back link + theme toggle.
+- `board-view.tsx` — client `BoardView`. CSS grid: `12rem` row-header column + N data columns + auto add-column slot. Sticky headers (`sticky left-0` / `sticky top-0`).
+- `row-header.tsx`, `column-header.tsx` — inline rename via click-to-edit + ref-focus, ▲/▼ (or ◀/▶) reorder buttons using `positionBetween`, delete with confirm.
+- `card-item.tsx` — drag-handle button (mounted with dnd-kit `attributes` + `listeners`), inline title rename, hover delete.
+- `actions.ts` — full server-action surface: `createCard` / `moveCard` / `renameCard` / `deleteCard`, `createRow` / `renameRow` / `moveRow` / `deleteRow`, `createColumn` / `renameColumn` / `moveColumn` / `deleteColumn`. All compute positions server-side via `positionBetween(last, null)` and `revalidatePath` on success.
+- `types.ts` — shared `RowModel` / `ColumnModel` / `CardModel`.
+
+**dnd-kit wiring**
+- `useDraggable` on each card, `useDroppable` on each card *and* each cell. Drop IDs: `card:<id>` → "insert before"; `cell:<rowId>:<columnId>` → "append".
+- `DragOverlay` shows a ghost of the active card.
+- Card move uses `useMutation` from TanStack Query so a failed move triggers `router.refresh()` for reconciliation; row/column moves and CRUD use `useTransition` + optimistic local state.
+
+**Types** (`packages/db/src/types.ts`)
+- Extended the placeholder `Database` interface with `rows`, `columns`, `board_collaborators`, `labels`, `card_labels` (matching `supabase/migrations/0001_init.sql`) so server queries are fully typed without `as any`.
+
+**Deps** (`apps/web/package.json`)
+- Added `@tanstack/react-query@5.62.0`, `@dnd-kit/core@6.3.1`, `@dnd-kit/sortable@10.0.0`, `@dnd-kit/utilities@3.2.2`. (Sortable isn't used yet — kept for Phase 3's label / row-sortable surfaces.)
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (60 files, 0 errors)
+- `pnpm typecheck` ✅ (5 packages — `@kpu/config` added to scope)
+- `pnpm test` ✅ (13 tests in `@kpu/core` still green; no new test files yet)
+- `pnpm build` ✅ — new routes:
+  - `/boards` static, 4.63 kB
+  - `/b/[id]` dynamic, 20.8 kB / 142 kB First Load JS
+  - Middleware still 62.4 kB
+- Manual: not run end-to-end against Supabase this session (still local-env-missing); SSR pages all redirect to `/sign-in` as designed.
+
+### ADRs added
+- `docs/DECISIONS/0003-board-state-and-dnd.md` — locks in per-page `useState` + `useMutation` (cards) / `useTransition` (rows + columns) over a full TanStack-Query-as-store pattern, plus the dnd-kit droppable-ID convention (`card:<id>` vs `cell:<rowId>:<columnId>`).
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Branch**: continued on `claude/kanban-plus-ultra-dev-VNoFa` (the current working branch on remote) rather than the `claude/chat-analysis-app-2fsuX` name mentioned in `CLAUDE.md`. The renamed branch tip equals `main`, so this is the same code path; updated this entry's metadata accordingly. Next-session note: keep `CLAUDE.md` working-branch reference in sync the next time the user picks one.
+- **Card editor is title-only for now**: full Tiptap markdown editor + image paste lands in Phase 3. The current click-to-rename touches only the `title` column.
+- **Row / column color stays at the default seed value**. Recolor UI deferred — kept the dot indicator so the schema field is exercised.
+- **Native `<input>` + ref/useEffect focus** instead of `autoFocus` (Biome a11y rule rejects `autoFocus` on raw inputs; the `@kpu/ui` `Input` wrapper isn't flagged because it's a React component, but inline edit controls didn't need the full token-styled wrapper).
+
+### Next up
+**Finish Phase 2 polish, then Phase 3 setup.**
+1. Virtualization once a board exceeds ~200 cards (`@tanstack/react-virtual`) — wrap each cell's card list.
+2. Pinch / ctrl-scroll zoom + per-board zoom persistence.
+3. Row collapse + color picker; column color picker + WIP limit field.
+4. Reconcile `boards.row_order` / `boards.col_order` arrays with the `position` numeric column. Currently the page reads `position` directly; the array is set on create but isn't kept in sync on row/column reorder. Either drop the arrays from the schema or write a trigger to keep them in sync.
+5. Begin Phase 3: Tiptap markdown editor in a modal, with 600 ms auto-save and the "saved" pulse.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. End-to-end smoke (sign-in → create board → drag card) needs `supabase start && supabase db reset` followed by `.env.local`. No code blocked.
+- **`row_order` / `col_order` arrays in `boards`** are now half-used (set on create, never updated on reorder). Decide before Phase 3 whether to drop them or sync them via trigger — see "Next up" item 4.
+- **Tailwind v4 beta** still at `4.0.0-beta.7`; revisit when stable ships.
+
+---
+
 ## 2026-05-12 — Handoff: PR #2 merged, main + working branch synced
 
 - **Agent / model**: Claude (Opus 4.7)

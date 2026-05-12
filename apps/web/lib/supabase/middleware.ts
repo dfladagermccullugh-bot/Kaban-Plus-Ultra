@@ -9,7 +9,8 @@ function isPublic(pathname: string): boolean {
     PUBLIC_PATHS.some((p) => pathname === p) ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
-    pathname.startsWith('/api/health')
+    pathname.startsWith('/api/health') ||
+    pathname.startsWith('/s/')
   );
 }
 

@@ -14,6 +14,7 @@ import {
 import { positionBetween, sortByPosition } from '@kpu/core';
 import { cn } from '@kpu/ui';
 import { useMutation } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
@@ -713,6 +714,10 @@ type CellProps = {
   onCardOpen: (cardId: string) => void;
 };
 
+const VIRTUALIZE_THRESHOLD = 50;
+const ESTIMATED_CARD_HEIGHT = 80;
+const VIRTUAL_VIEWPORT_HEIGHT = 600;
+
 function Cell({
   rowId,
   columnId,
@@ -729,6 +734,27 @@ function Cell({
   const { isOver, setNodeRef } = useDroppable({ id: droppableId });
   const [adding, setAdding] = useState(false);
 
+  const renderCard = (card: CardModel) => {
+    const labelIds = labelsByCard.get(card.id) ?? [];
+    const cardLabels = labelIds
+      .map((id) => labelsById.get(id))
+      .filter((l): l is LabelModel => Boolean(l));
+    const cover = card.cover_image_id ? (imagesById.get(card.cover_image_id) ?? null) : null;
+    return (
+      <DraggableCard
+        key={card.id}
+        card={card}
+        labels={cardLabels}
+        coverImage={cover}
+        onRename={(title) => onCardRename(card.id, title)}
+        onDelete={() => onCardDelete(card.id)}
+        onOpen={() => onCardOpen(card.id)}
+      />
+    );
+  };
+
+  const shouldVirtualize = cards.length > VIRTUALIZE_THRESHOLD;
+
   return (
     <div
       ref={setNodeRef}
@@ -737,24 +763,11 @@ function Cell({
         isOver && 'bg-accent/5',
       )}
     >
-      {cards.map((card) => {
-        const labelIds = labelsByCard.get(card.id) ?? [];
-        const cardLabels = labelIds
-          .map((id) => labelsById.get(id))
-          .filter((l): l is LabelModel => Boolean(l));
-        const cover = card.cover_image_id ? (imagesById.get(card.cover_image_id) ?? null) : null;
-        return (
-          <DraggableCard
-            key={card.id}
-            card={card}
-            labels={cardLabels}
-            coverImage={cover}
-            onRename={(title) => onCardRename(card.id, title)}
-            onDelete={() => onCardDelete(card.id)}
-            onOpen={() => onCardOpen(card.id)}
-          />
-        );
-      })}
+      {shouldVirtualize ? (
+        <VirtualCardList cards={cards} renderCard={renderCard} />
+      ) : (
+        cards.map(renderCard)
+      )}
       {adding ? (
         <NewCardInput
           onSubmit={(title) => {
@@ -772,6 +785,61 @@ function Cell({
           + Card
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Renders a virtualized list of cards. Only used when a cell has more than
+ * `VIRTUALIZE_THRESHOLD` cards — smaller cells stay fully rendered so dnd-kit
+ * can pick any card as a drop target. For huge cells, drop targets fall back
+ * to the cell as a whole (which appends to the end), which is the right
+ * tradeoff: precise positioning isn't possible for off-screen cards anyway.
+ */
+function VirtualCardList({
+  cards,
+  renderCard,
+}: {
+  cards: CardModel[];
+  renderCard: (card: CardModel) => React.ReactNode;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: cards.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ESTIMATED_CARD_HEIGHT,
+    overscan: 6,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      style={{ height: VIRTUAL_VIEWPORT_HEIGHT }}
+      className="overflow-y-auto rounded-sm border border-border/40"
+    >
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }} className="w-full">
+        {virtualizer.getVirtualItems().map((vi) => {
+          const card = cards[vi.index];
+          if (!card) return null;
+          return (
+            <div
+              key={card.id}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${vi.start}px)`,
+                paddingBottom: 8,
+              }}
+            >
+              {renderCard(card)}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

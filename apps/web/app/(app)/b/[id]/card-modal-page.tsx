@@ -1,3 +1,4 @@
+import { getCurrentUser } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { CardEditorModal } from './card-editor-modal';
@@ -7,6 +8,7 @@ type Params = { params: Promise<{ id: string; cardId: string }> };
 export async function CardModalPage({ params }: Params) {
   const { id: boardId, cardId } = await params;
   const supabase = await createClient();
+  const me = await getCurrentUser();
 
   const [{ data: card }, { data: labels }, { data: cardLabelRows }, { data: cover }] =
     await Promise.all([
@@ -33,6 +35,7 @@ export async function CardModalPage({ params }: Params) {
       labels={labels ?? []}
       cardLabelIds={(cardLabelRows ?? []).map((r) => r.label_id)}
       images={cover ?? []}
+      selfId={me?.id ?? null}
     />
   );
 }

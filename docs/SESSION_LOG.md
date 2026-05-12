@@ -4,6 +4,57 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-12 — Handoff: PRs #4 + #5 merged, working branch synced to main
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kanban-plus-ultra-dev-VNoFa`
+- **Phase**: 2 ✅ (virtualization deferred) → 3 next
+
+### Goal
+Land Phase 2 work on `main` and produce a clean handoff for the next session.
+
+### Changed
+- Fast-forwarded local `main` and `claude/kanban-plus-ultra-dev-VNoFa` onto `origin/main`. Both branches now point at `e593f65` (merge of PR #5). Working branch tip **equals main** exactly; new work for Phase 3 stacks cleanly on top.
+- `CLAUDE.md`, `docs/SESSION_PROTOCOL.md`, `docs/CONTRIBUTING.md` — replaced the stale `claude/chat-analysis-app-2fsuX` references with the live `claude/kanban-plus-ultra-dev-VNoFa` branch name. Model reference in the session-log template bumped to Opus 4.7.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (62 files)
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ (13 tests in `@kpu/core`)
+- `pnpm build` ✅ — `/b/[id]` 22.6 kB / 144 kB First Load JS; `/boards` 4.63 kB / 121 kB; middleware 62.4 kB
+- `git status` clean; local + `origin` match for both `main` and the working branch.
+
+### Final git state
+| Branch | HEAD | Tracks |
+|---|---|---|
+| `main` (local + origin) | `e593f65` *(merge of PR #5)* | ✅ in sync |
+| `claude/kanban-plus-ultra-dev-VNoFa` (local + origin) | `e593f65` | ✅ in sync, identical to main |
+
+### ADRs added
+None this session.
+
+### Delegations
+None.
+
+### Next up
+**Phase 3 — Card editor + images + labels.** Concrete sub-tasks (also in `docs/ROADMAP.md`):
+1. Tiptap markdown editor in a modal. Consider Next App-Router parallel route `/b/[id]/c/[cardId]` so the modal is shareable + back-button friendly. 600 ms debounced auto-save, "saved" pulse on commit.
+2. Image paste / drag-drop → Supabase Storage (`images` table already exists in `0001_init.sql`) → blurhash placeholder. Need to provision the `avatars` and `card-images` buckets per `docs/SECURITY.md` before the upload path lights up.
+3. Cover image on card front (uses `cards.cover_image_id` already in schema).
+4. Labels: CRUD + color picker + multi-select on cards.
+5. Label filter bar above the grid.
+
+**Carry-over from Phase 2**:
+- Virtualization for cells with > 50 cards via `@tanstack/react-virtual` is the only unticked Phase 2 box. Land it once Phase 3's card editor is in or earlier if a real board hits the threshold.
+
+### Blockers / open questions
+- **Supabase provisioning** is still local-only. Migrations `0001_init.sql` + `0002_drop_board_orders.sql` need to be applied (`supabase start && supabase db reset`) before any auth/CRUD flow can be exercised end-to-end. No code blocked.
+- **`next@15.1.3` has a security advisory** (CVE-2025-66478, surfaced by pnpm during install). Bump to the latest patched 15.x at the start of the next session before adding new code on top.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`; watch for stable.
+
+---
+
 ## 2026-05-12 — Phase 2 polish: row collapse + recolor, WIP limits, ctrl-scroll zoom, schema cleanup
 
 - **Agent / model**: Claude (Opus 4.7)

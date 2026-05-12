@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 2 nearly done — board CRUD, the 2D grid, dnd-kit card drag, row/column reorder + recolor + collapse + WIP limit, and ctrl/⌘-scroll zoom are live. Virtualization (≥200 cards) is the last open item before Phase 3.
+**Current phase:** Phase 2 ✅ shipped to `main` (PRs #4 + #5). Only virtualization (≥200 cards) is left unticked — carry-over into Phase 3. **Phase 3 (Card editor + images + labels) is next.**
 
 ---
 

@@ -35,8 +35,8 @@ See `docs/VISION.md` for the full backstory.
 
 ## Branch & PR conventions
 
-- Active branch: `claude/chat-analysis-app-2fsuX` (the canonical dev branch for this work)
-- As of the last handoff, the working branch tip **equals `main`** (both at the merge of PR #2). New work stacks cleanly on top.
+- Active branch: `claude/kanban-plus-ultra-dev-VNoFa` (the canonical dev branch for this work; supersedes the earlier `claude/chat-analysis-app-2fsuX` name).
+- As of the last handoff, the working branch tip **equals `main`** (both at `e593f65`, the merge of PR #5). New work stacks cleanly on top.
 - Commits: [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat(board): add row collapse`)
 - Push at the end of every session. Do NOT open PRs unless explicitly asked.
 

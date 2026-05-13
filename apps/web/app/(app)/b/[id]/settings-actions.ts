@@ -1,5 +1,6 @@
 'use server';
 
+import { recordAuditEvent } from '@/lib/audit';
 import { getSiteUrl } from '@/lib/env';
 import { createAdmin } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -19,7 +20,7 @@ async function authedClient() {
   return { supabase, user };
 }
 
-async function assertBoardAdmin(boardId: string): Promise<void> {
+async function assertBoardAdmin(boardId: string): Promise<string> {
   const { supabase, user } = await authedClient();
   const { data: board } = await supabase
     .from('boards')
@@ -27,7 +28,7 @@ async function assertBoardAdmin(boardId: string): Promise<void> {
     .eq('id', boardId)
     .maybeSingle();
   if (!board) throw new Error('Board not found.');
-  if (board.owner_id === user.id) return;
+  if (board.owner_id === user.id) return user.id;
   const { data: collab } = await supabase
     .from('board_collaborators')
     .select('role')
@@ -37,6 +38,7 @@ async function assertBoardAdmin(boardId: string): Promise<void> {
   if (!collab || collab.role !== 'admin') {
     throw new Error('Only the board owner or an admin can manage collaborators.');
   }
+  return user.id;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -53,31 +55,33 @@ export async function inviteCollaborator(
     const trimmedEmail = email.trim().toLowerCase();
     if (!EMAIL_RE.test(trimmedEmail)) return { ok: false, error: 'Invalid email address.' };
     if (!ROLES.includes(role)) return { ok: false, error: 'Invalid role.' };
-    await assertBoardAdmin(boardId);
+    const actorId = await assertBoardAdmin(boardId);
 
     const admin = createAdmin();
 
-    // Email is the auth-system identifier; `profiles` doesn't carry it. Look up
-    // the user via the auth admin API and either pick up an existing id or
-    // send an invite for a new one.
+    // Directory lookup via `profiles.email` (populated by the auth-trigger as
+    // of migration 0006). Scales without paginating `auth.admin.listUsers`.
     let targetUserId: string | null = null;
-    const { data: list, error: listErr } = await admin.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-    if (listErr) return { ok: false, error: listErr.message };
-    const existing = list.users.find((u) => u.email?.toLowerCase() === trimmedEmail);
+    let invited = false;
+    const { data: existing, error: lookupErr } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('email', trimmedEmail)
+      .maybeSingle();
+    if (lookupErr) return { ok: false, error: lookupErr.message };
+
     if (existing) {
       targetUserId = existing.id;
     } else {
-      const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(
+      const { data: newUser, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(
         trimmedEmail,
         { redirectTo: `${getSiteUrl()}/b/${boardId}` },
       );
-      if (inviteErr || !invited.user) {
+      if (inviteErr || !newUser.user) {
         return { ok: false, error: inviteErr?.message ?? 'Failed to send invite.' };
       }
-      targetUserId = invited.user.id;
+      targetUserId = newUser.user.id;
+      invited = true;
     }
 
     // Insert / update the collaborator row. Use the admin client so this works
@@ -89,6 +93,13 @@ export async function inviteCollaborator(
         { onConflict: 'board_id,profile_id' },
       );
     if (upsertErr) return { ok: false, error: upsertErr.message };
+
+    await recordAuditEvent(boardId, actorId, 'collaborator.invite', {
+      target_profile_id: targetUserId,
+      target_email: trimmedEmail,
+      role,
+      new_user: invited,
+    });
 
     revalidatePath(`/b/${boardId}`);
     return { ok: true };
@@ -104,7 +115,7 @@ export async function updateCollaboratorRole(
 ): Promise<ActionResult> {
   try {
     if (!ROLES.includes(role)) return { ok: false, error: 'Invalid role.' };
-    await assertBoardAdmin(boardId);
+    const actorId = await assertBoardAdmin(boardId);
     const { supabase } = await authedClient();
     const { error } = await supabase
       .from('board_collaborators')
@@ -112,6 +123,10 @@ export async function updateCollaboratorRole(
       .eq('board_id', boardId)
       .eq('profile_id', profileId);
     if (error) return { ok: false, error: error.message };
+    await recordAuditEvent(boardId, actorId, 'collaborator.role_update', {
+      target_profile_id: profileId,
+      role,
+    });
     revalidatePath(`/b/${boardId}`);
     return { ok: true };
   } catch (err) {
@@ -124,7 +139,7 @@ export async function removeCollaborator(
   profileId: string,
 ): Promise<ActionResult> {
   try {
-    await assertBoardAdmin(boardId);
+    const actorId = await assertBoardAdmin(boardId);
     const { supabase } = await authedClient();
     const { error } = await supabase
       .from('board_collaborators')
@@ -132,6 +147,9 @@ export async function removeCollaborator(
       .eq('board_id', boardId)
       .eq('profile_id', profileId);
     if (error) return { ok: false, error: error.message };
+    await recordAuditEvent(boardId, actorId, 'collaborator.remove', {
+      target_profile_id: profileId,
+    });
     revalidatePath(`/b/${boardId}`);
     return { ok: true };
   } catch (err) {
@@ -145,10 +163,11 @@ export async function rotateShareToken(
   boardId: string,
 ): Promise<ActionResult<{ token: string; url: string }>> {
   try {
-    const { supabase } = await authedClient();
+    const { supabase, user } = await authedClient();
     const { data, error } = await supabase.rpc('rotate_share_token', { board_id: boardId });
     if (error || !data) return { ok: false, error: error?.message ?? 'Failed to rotate token.' };
     const url = `${getSiteUrl()}/s/${boardId}?t=${data}`;
+    await recordAuditEvent(boardId, user.id, 'share_link.rotate', {});
     revalidatePath(`/b/${boardId}`);
     return { ok: true, data: { token: data, url } };
   } catch (err) {
@@ -158,9 +177,10 @@ export async function rotateShareToken(
 
 export async function revokeShareToken(boardId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await authedClient();
+    const { supabase, user } = await authedClient();
     const { error } = await supabase.rpc('revoke_share_token', { board_id: boardId });
     if (error) return { ok: false, error: error.message };
+    await recordAuditEvent(boardId, user.id, 'share_link.revoke', {});
     revalidatePath(`/b/${boardId}`);
     return { ok: true };
   } catch (err) {

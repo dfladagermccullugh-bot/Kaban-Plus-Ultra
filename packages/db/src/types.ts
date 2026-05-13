@@ -22,6 +22,7 @@ export interface Database {
           avatar_url: string | null;
           accent_color: string;
           density: Density;
+          email: string | null;
           created_at: string;
         };
         Insert: {
@@ -30,9 +31,26 @@ export interface Database {
           avatar_url?: string | null;
           accent_color?: string;
           density?: Density;
+          email?: string | null;
           created_at?: string;
         };
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>;
+      };
+      audit_events: {
+        Row: {
+          id: string;
+          board_id: string;
+          actor_id: string;
+          kind: string;
+          payload: Json;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['audit_events']['Row'], 'id' | 'created_at'> & {
+          id?: string;
+          payload?: Json;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['audit_events']['Insert']>;
       };
       boards: {
         Row: {

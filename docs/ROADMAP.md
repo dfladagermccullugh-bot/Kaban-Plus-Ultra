@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 4 nearly complete — realtime, presence (with "X is editing" hint), invite-by-email, public read-only share links, and the label-management surface have all landed. Per-cell virtualization for big cells is in. Remaining: harden invites against very large user lists (currently `listUsers` is single-page) and stress-test share-link RLS against a real Supabase project.
+**Current phase:** Phase 4 closed — audit-events writer + invite directory lookup (via `profiles.email`, migration 0006) are in. Phase 5 kickoff: `apps/mobile/` Capacitor shell scaffolded, drag haptics + pull-to-refresh on `/boards` live. Native iOS/Android projects still need to be generated on a dev machine with Xcode / Android Studio (`npx cap add ios|android`).
 
 ---
 
@@ -70,16 +70,18 @@ Goal: friends on the same board, live.
 - [x] Invite collaborator by email (sends magic link with attached invite; service-role invite path + auto-upsert into `board_collaborators`)
 - [x] Role management (viewer / editor / admin) — popover surface in board settings
 - [x] Public read-only share links (generate, rotate, revoke — migration 0005, RPC + RLS for child tables, `/s/[id]` viewer route)
+- [x] Audit-events writer — invite / role-update / collaborator-remove / share-token rotate / revoke server actions all insert into `audit_events` via the service-role client (`apps/web/lib/audit.ts`)
+- [x] Invite directory lookup — `profiles.email` pinned by the signup trigger (migration 0006) replaces single-page `listUsers` paging
 
 ## Phase 5 — Mobile shell
 
 Goal: real native apps on iPhone and Android.
 
-- [ ] `apps/mobile/` Capacitor init, `capacitor.config.ts`
+- [x] `apps/mobile/` Capacitor init, `capacitor.config.ts` (workspace package; iOS/Android projects to be added on a dev machine via `npx cap add`)
 - [ ] iOS Xcode project + splash + icon set
 - [ ] Android Studio project + adaptive icon set
-- [ ] Touch-tuned drag with haptic on pickup/drop (`@capacitor/haptics`)
-- [ ] Pull-to-refresh on boards list
+- [x] Touch-tuned drag with haptic on pickup/drop (`@capacitor/haptics`; respects `prefers-reduced-motion`)
+- [x] Pull-to-refresh on boards list (touch-only, threshold 72px → `router.refresh()`)
 - [ ] Camera plugin for card image capture
 - [ ] TestFlight build (internal testers)
 - [ ] Play Console Internal Testing build

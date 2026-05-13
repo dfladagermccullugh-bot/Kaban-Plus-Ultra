@@ -1,5 +1,6 @@
 'use client';
 
+import { hapticImpact } from '@/lib/haptics';
 import {
   DndContext,
   type DragEndEvent,
@@ -209,11 +210,15 @@ export function BoardView({
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
-    if (id.startsWith('card:')) setActiveCardId(id.slice('card:'.length));
+    if (id.startsWith('card:')) {
+      setActiveCardId(id.slice('card:'.length));
+      hapticImpact('light');
+    }
   }
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveCardId(null);
+    if (event.over) hapticImpact('medium');
     if (!event.over) return;
     const activeId = String(event.active.id);
     if (!activeId.startsWith('card:')) return;

@@ -4,6 +4,151 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 4 closeout (audit writer + invite hardening) + Phase 5 kickoff (Capacitor shell, haptics, pull-to-refresh)
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-phase-4-continue-Kals8` (session-assigned;
+  stacks on `08f4813` — `main` after merging the previous session's
+  PRs #11 and #12, which carried the Phase 4 closeout work)
+- **Phase**: 4 → 5 transition
+
+### Goal
+Drain the Phase 4 follow-ups noted in the previous handoff — audit-events
+writer, invite directory lookup — then open Phase 5 with the
+`apps/mobile/` Capacitor scaffold, drag haptics, and pull-to-refresh on
+the boards list.
+
+### Changed
+
+**Schema** (`supabase/migrations/`)
+- `0006_profiles_email.sql` — pins the user's email on `profiles`:
+  adds a nullable `email text` column, backfills from `auth.users`,
+  adds a partial unique index, rewrites `on_auth_user_created` to
+  populate it on signup, and adds a `trg_auth_user_email_updated`
+  trigger that propagates verified email changes.
+
+**Types** (`packages/db/src/types.ts`)
+- `profiles` gains `email`.
+- `audit_events` table is now typed (`Row`, `Insert`, `Update`).
+
+**Audit-events writer**
+- `apps/web/lib/audit.ts` — new `recordAuditEvent(boardId, actorId,
+  kind, payload)` helper. Uses the existing service-role admin client
+  (`audit_events` has no public INSERT policy). Failures are logged
+  and swallowed so audit hiccups never block the user-facing action.
+  `AuditKind` union: `collaborator.invite`, `collaborator.role_update`,
+  `collaborator.remove`, `share_link.rotate`, `share_link.revoke`.
+- `apps/web/app/(app)/b/[id]/settings-actions.ts` — all five mutating
+  server actions now call `recordAuditEvent` after the underlying
+  mutation succeeds, before `revalidatePath`. `assertBoardAdmin` now
+  returns the actor id to save a second `auth.getUser()` round-trip.
+
+**Invite directory lookup**
+- Replaced `admin.auth.admin.listUsers({ perPage: 200 })` with a direct
+  `admin.from('profiles').select('id').eq('email', trimmedEmail).
+  maybeSingle()`. Existing users → reuse the id; missing → fall through
+  to `inviteUserByEmail` as before. The path no longer breaks on
+  >200-user tenants.
+
+**Mobile shell** (`apps/mobile/` — new workspace package)
+- `package.json` — Capacitor 6 deps (`@capacitor/core`, `cli`, `ios`,
+  `android`, `haptics`), `@kpu/config` workspace dep, `@types/node`
+  for tsconfig. Scripts: `sync`, `open:ios`, `open:android`,
+  `run:ios`, `run:android`, `build:web`, `typecheck`.
+- `capacitor.config.ts` — `appId: app.kabanplusultra`, `webDir: 'public'`,
+  opt-in `server.url` driven by `KPU_DEV_SERVER` so the native shell
+  can load `pnpm dev` on LAN.
+- `tsconfig.json` — extends base; types: `['node']`.
+- `public/.gitkeep` — `cap sync` requires a `webDir` to exist.
+- `README.md` — first-time setup walkthrough; explicitly notes that
+  `ios/` and `android/` projects are added on a dev machine with
+  Xcode / Android Studio via `npx cap add`.
+
+**Haptics + drag**
+- `apps/web/lib/haptics.ts` — `hapticImpact('light' | 'medium')` wraps
+  `@capacitor/haptics`. Short-circuits on `prefers-reduced-motion`.
+  Falls back to `navigator.vibrate` if the Capacitor web shim throws.
+- `apps/web/package.json` — `+ @capacitor/core 6.2.0`,
+  `+ @capacitor/haptics 6.0.2`.
+- `apps/web/app/(app)/b/[id]/board-view.tsx` — `handleDragStart` fires
+  a light impact when picking up a card; `handleDragEnd` fires a
+  medium impact when releasing over a valid drop target.
+
+**Pull-to-refresh on `/boards`**
+- `apps/web/app/(app)/boards/pull-to-refresh.tsx` — new client
+  component. Touch-only (`(pointer: coarse)`), rubber-bands at
+  0.55 × deltaY, threshold 72 px, max pull 120 px. Light haptic on
+  threshold-cross, medium haptic on release; calls
+  `router.refresh()` and pins the spinner for 350 ms so a fast
+  refresh doesn't strobe.
+- `apps/web/app/(app)/boards/page.tsx` — wraps `<main>` in
+  `<PullToRefresh>`.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 4 audit + invite-hardening boxes ticked;
+  Phase 5 Capacitor init + haptics + pull-to-refresh boxes ticked.
+  Status line updated to reflect the Phase 4 → 5 transition.
+- `docs/DECISIONS/0008-audit-events-and-mobile-kickoff.md` — added.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅ (baseline)
+- `pnpm install` ✅ (after dep additions; +93 packages)
+- `pnpm lint` ✅ (89 files clean after biome auto-fix on imports)
+- `pnpm typecheck` ✅ (5 packages now — `@kpu/mobile` joins the run)
+- `pnpm test` ✅ (13 tests in `@kpu/core` still green; no new tests)
+- `pnpm build` ✅
+  - `/b/[id]` 139 B / **195 kB** First Load JS (up from 191 kB —
+    haptics shim)
+  - `/b/[id]/(.)c/[cardId]` + direct route unchanged at 263 kB
+  - `/boards` 3.72 kB / **122 kB** First Load JS (up from 118 kB —
+    pull-to-refresh component)
+  - `/s/[id]` unchanged at 106 kB
+
+### ADRs added
+- `docs/DECISIONS/0008-audit-events-and-mobile-kickoff.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Profile email is nullable** — some provider-only Supabase signups
+  legitimately don't carry one. Partial unique index `where email is
+  not null` is the safe shape.
+- **Audit writes are fire-and-forget** — a failed `audit_events`
+  insert never bubbles up; we log to stderr and return `ok: true` to
+  the caller. The collaborator change is more important than the
+  audit row.
+- **`apps/mobile/` ships with `webDir: 'public'` (placeholder)** —
+  `cap sync` needs the directory to exist; the real bundle is served
+  either by Next at dev time (via `server.url`) or by a hosted/
+  self-hosted instance for release builds. We did not commit
+  generated `ios/`/`android/` folders because they need Xcode +
+  Android Studio to create — that's a dev-machine step.
+
+### Next up
+1. **Native projects**: on a macOS box, `cd apps/mobile && npx cap add
+   ios && npx cap add android && npx cap sync`. Commit the resulting
+   folders. Add `assets/icon.png` + `assets/splash.png` and run
+   `npx @capacitor/assets generate`.
+2. **Camera plugin**: `@capacitor/camera` for capturing card images
+   on mobile (Phase 5 remaining box). Web fallback is the existing
+   `<input type="file" accept="image/*">`.
+3. **`docs/SECURITY.md` note**: document `profiles.email` as PII;
+   confirm the only consumer is the invite server action (service-
+   role).
+4. **Phase 6 prep**: markdown export `.zip` of `.md` files (one
+   folder per row, one file per card).
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 → 0006
+  must all be applied; invite-by-email additionally needs
+  `SUPABASE_SERVICE_ROLE_KEY` + SMTP (or local supabase + inbucket).
+- **Native shell**: cannot be generated in this harness (no Xcode /
+  Android Studio). Listed as the first next-up item.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-12 — Phase 4 continued: invites, share links, "X is editing", label mgmt, per-cell virtualization
 
 - **Agent / model**: Claude (Opus 4.7)

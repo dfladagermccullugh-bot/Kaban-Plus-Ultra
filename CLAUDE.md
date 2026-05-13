@@ -35,8 +35,8 @@ See `docs/VISION.md` for the full backstory.
 
 ## Branch & PR conventions
 
-- Active branch: each web session is assigned a fresh branch by the harness (e.g. `claude/kaban-plus-ultra-dev-<id>`). Honor whatever branch the system prompt names — never push to `main`. Previous session branches: `claude/chat-analysis-app-2fsuX` (Phases 0–1), `claude/kanban-plus-ultra-dev-VNoFa` (Phase 2), `claude/kaban-plus-ultra-dev-8Vmfo` (Phase 3), `claude/kaban-phase-3-continue-Dm3T6` (Phase 4 kickoff — realtime + presence), `claude/phase-4-realtime-channel-MkZ7T` (Phase 4 closeout — invites, share links, peer-editing, label mgmt, virtualization).
-- Latest tip: `claude/phase-4-realtime-channel-MkZ7T` at `25b5209` (Phase 4 closeout). It stacks directly on `main` at `b581c86` (merge of PR #9). The branch is unmerged — review/merge before the next session, or stack the new branch on top of it.
+- Active branch: each web session is assigned a fresh branch by the harness (e.g. `claude/kaban-plus-ultra-dev-<id>`). Honor whatever branch the system prompt names — never push to `main`. Previous session branches: `claude/chat-analysis-app-2fsuX` (Phases 0–1), `claude/kanban-plus-ultra-dev-VNoFa` (Phase 2), `claude/kaban-plus-ultra-dev-8Vmfo` (Phase 3), `claude/kaban-phase-3-continue-Dm3T6` (Phase 4 kickoff — realtime + presence), `claude/phase-4-realtime-channel-MkZ7T` (Phase 4 closeout — invites, share links, peer-editing, label mgmt, virtualization; merged via PRs #11 + #12), `claude/kaban-phase-4-continue-Kals8` (Phase 4 audit-writer + invite hardening + Phase 5 kickoff).
+- Latest tip: `claude/kaban-phase-4-continue-Kals8` at `bfcda7b` (Phase 4 → 5 transition: audit-events writer, `profiles.email` directory lookup, `apps/mobile/` Capacitor shell, drag haptics, pull-to-refresh). Stacks on `main` at `08f4813` (merge of PR #12). Unmerged — review/merge before the next session, or stack the new branch on top of it.
 - Commits: [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat(board): add row collapse`)
 - Push at the end of every session. Do NOT open PRs unless explicitly asked.
 

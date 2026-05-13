@@ -4,6 +4,142 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 6b/c/d: page transitions, mobile bottom-sheet, axe-core, Tiptap dynamic import
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/markdown-zip-import-7c2Oc` (session-assigned;
+  stacks on `main` at `82bcdb0` — PR #17 merged the previous session's
+  Phase 6a Markdown ZIP import work)
+- **Phase**: 6 (Markdown export/import + polish)
+
+### Goal
+Land the Phase 6b/c/d polish triad: subtle Framer Motion page
+transitions on the `(app)` segment, a bottom-sheet card editor on
+touch devices (centered dialog elsewhere) — both honouring
+`prefers-reduced-motion` — wire axe-core into Vitest as an a11y CI
+gate, and dynamic-import Tiptap (and the Supabase browser client on
+sign-in) so the heaviest routes drop below the perf budget.
+
+### Changed
+
+**Page transitions** (`apps/web/components/page-transition.tsx` — new;
+`apps/web/app/(app)/layout.tsx` — new)
+- Client wrapper: `<AnimatePresence mode="wait" initial={false}>` keyed
+  on `usePathname()`. Animates `opacity` + a tiny `y` (4 → 0 in,
+  0 → −2 out) via the golden-rule spring
+  `{ type: 'spring', stiffness: 300, damping: 30 }`.
+  Reduced-motion collapses to `duration: 0`.
+- Lives in a new `(app)/layout.tsx` so `/boards`, `/b/[id]`, `/profile`
+  all inherit the transition without re-mounting board state.
+
+**Card editor modal** (`apps/web/app/(app)/b/[id]/card-editor-modal.tsx`)
+- Replaced the CSS-only fade-in wrapper with
+  `<AnimatePresence onExitComplete={() => router.push('/b/${id}')}>` so
+  the **exit animation actually plays** before the parallel route slot
+  unmounts. Internal `open` state flips to `false` on close, the exit
+  variant runs, then we route back.
+- On `(pointer: coarse)` (touch): bottom sheet
+  (`fixed inset-x-0 bottom-0 max-h-[92vh] rounded-t-2xl`) sliding up
+  from `y: 100%` with a sticky drag-handle row that hosts the close X
+  so it stays visible when the sheet content scrolls.
+- On fine pointer: centered dialog (`rounded-lg max-w-3xl`) with the
+  heavy-surface spring (`stiffness: 220, damping: 28`) animating
+  `{ opacity, y, scale }`.
+- `useReducedMotion()` collapses both variants to a 0-duration opacity
+  swap.
+- `apps/web/lib/use-media-query.ts` — new tiny hook
+  (`useMediaQuery(query)` + `useCoarsePointer()`).
+
+**Tiptap dynamic import** (perf — `card-editor-modal.tsx`)
+- `TiptapEditor` now loaded via
+  `next/dynamic(() => import('./tiptap-editor'), { ssr: false })`.
+- `/b/[id]/(.)c/[cardId]` and `/b/[id]/c/[cardId]` First Load JS
+  dropped from **263 kB → 161 kB** (≈ −39 %).
+
+**Sign-in Supabase client deferral** (`apps/web/app/sign-in/sign-in-form.tsx`)
+- Moved `createClient` from the top-level import to a `getSupabase()`
+  helper that `await import('@/lib/supabase/browser')` inside event
+  handlers. `/sign-in` First Load JS dropped from
+  **153 kB → 116 kB**.
+
+**Axe-core CI gate** (`apps/web/vitest.config.ts` — new;
+`apps/web/tests/a11y.test.tsx` — new)
+- Vitest config with `environment: 'jsdom'`, `@` path alias, and a
+  test glob limited to `tests/**`.
+- 3 a11y tests: (1) `Button` + `Input` + `Label` compose a valid
+  labelled form field, (2) `<ThemeToggle>` is a labelled radio group,
+  (3) `<SignInForm>` idle state has accessible inputs + buttons. All
+  three assert `axe.run(...)` returns zero violations.
+- The `color-contrast` rule is disabled in jsdom (it needs computed
+  styles which jsdom doesn't compute). Lighthouse picks that up on
+  the live site.
+
+**Deps**
+- `apps/web` gains `framer-motion ^12.38.0`, plus dev deps `axe-core`,
+  `jsdom`, `@testing-library/react`, `@testing-library/dom`.
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (104 files, biome clean)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ — **29 tests pass** (26 in `@kpu/core` + 3 new axe
+  tests in `@kpu/web`)
+- `pnpm build` ✅
+
+| Route | Before | After | Δ |
+| --- | --- | --- | --- |
+| `/b/[id]/(.)c/[cardId]` | 263 kB | **161 kB** | −102 kB |
+| `/b/[id]/c/[cardId]` | 263 kB | **161 kB** | −102 kB |
+| `/sign-in` | 153 kB | **116 kB** | −37 kB |
+| `/b/[id]` | 196 kB | 197 kB | +1 kB (framer-motion) |
+| `/boards` | 124 kB | 124 kB | unchanged |
+| `/` | 116 kB | 116 kB | unchanged |
+| Shared First Load | 102 kB | 102 kB | unchanged |
+
+### ADRs added
+- `docs/DECISIONS/0011-page-transitions-and-modal-sheets.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (noted in ADR 0011)
+- **`AnimatePresence onExitComplete` + internal `open` state** to make
+  the modal exit animation play before the parallel-route slot
+  unmounts.
+- **One component, two variants** (dialog + sheet) rather than two
+  separate components — shared ~95 % of state and effects.
+- **`color-contrast` disabled in jsdom axe runs** — Lighthouse owns
+  that rule live; jsdom has no computed styles.
+- **Dynamic-import Tiptap, not React.lazy** — `next/dynamic` gives us
+  a `loading` placeholder slot without a top-level `<Suspense>`.
+
+### Next up
+1. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification.** Needs a
+   running dev server with a seeded Supabase. Defer to a session that
+   can boot `supabase start` + `pnpm dev` end-to-end and run
+   `lhci`/`lighthouse` from CLI.
+2. **Drag-to-dismiss the bottom sheet.** Framer Motion `drag="y"` +
+   `onDragEnd` threshold. Polish, not required for v1.
+3. **Native projects** (still deferred): `cd apps/mobile && npx cap
+   add ios && npx cap add android && npx cap sync` on a dev machine
+   with Xcode + Android Studio. iOS Info.plist camera/library keys
+   queue behind that.
+4. **TestFlight + Play internal builds** behind the native projects.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 → 0006
+  must all be applied; invite-by-email still needs
+  `SUPABASE_SERVICE_ROLE_KEY` + SMTP (or local supabase + inbucket).
+- **Native shell** still cannot be generated in this harness (no Xcode
+  / Android Studio).
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+- **Lighthouse a11y/perf scores are not measured in CI.** Axe-core
+  catches the rule-based a11y issues; the score thresholds require a
+  live browser run and we don't have one in this harness.
+
+---
+
 ## 2026-05-13 — Phase 6 continuation: Markdown ZIP import (round-trip with the export)
 
 - **Agent / model**: Claude (Opus 4.7)

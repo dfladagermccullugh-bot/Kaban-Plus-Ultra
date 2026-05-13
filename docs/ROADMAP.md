@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 6 underway. Markdown `.zip` round-trip is now complete: export (`/b/[id]/export` + header button) and drag-drop import (`<ZipDropzone>` on `/boards` creates a new board; on `/b/[id]` merges into the existing one). Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, page transitions + mobile modal sheets, a11y + perf passes.
+**Current phase:** Phase 6 underway. Markdown `.zip` round-trip is now complete: export (`/b/[id]/export` + header button) and drag-drop import (`<ZipDropzone>` on `/boards` creates a new board; on `/b/[id]` merges into the existing one). Animation polish is in: subtle Framer Motion spring page transitions on the `(app)` segment, and the card editor modal is now a bottom-sheet on `(pointer: coarse)` (touch) and a centered dialog elsewhere — both honor `prefers-reduced-motion`. Axe-core is wired into the Vitest CI pass (a11y gate; 3 component tests). Perf: dynamic-importing the Tiptap stack drops `/b/[id]/c/[cardId]` from 263 → 161 kB First Load JS, and deferring the Supabase browser client at sign-in drops `/sign-in` from 153 → 116 kB. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification.
 
 ---
 
@@ -92,10 +92,10 @@ Goal: own your data; final polish pass.
 
 - [x] Board → `.zip` of `.md` files (one folder per row, one file per card; YAML frontmatter for title/id/row/column/labels/cover; README matrix; jszip + `/b/[id]/export` route handler + `<ExportButton>` in the header)
 - [x] Drag-drop import (`.zip`) — `/boards` creates a new board; `/b/[id]` merges into the existing board (rows / columns / labels matched by case-insensitive title, missing ones appended; cards always appended). Pure parser in `@kpu/core`; server actions per page; shared `<ZipDropzone>` overlay
-- [ ] Animation polish: page transitions, modal sheets on mobile
-- [ ] `prefers-reduced-motion` QA pass
-- [ ] a11y audit (axe-core in CI; Lighthouse a11y ≥ 95)
-- [ ] Lighthouse perf ≥ 90 on web
+- [x] Animation polish: page transitions on `(app)` segment (Framer Motion spring) + card-editor modal becomes a bottom-sheet on `(pointer: coarse)`; centered dialog on fine pointer. Exit animation runs before route push via `AnimatePresence`
+- [x] `prefers-reduced-motion` QA pass — page transition and modal both collapse to a 0-duration cross-fade when reduced motion is requested (`useReducedMotion`)
+- [x] axe-core in CI — `apps/web/tests/a11y.test.tsx` mounts `Button`/`Input`/`Label`, `ThemeToggle`, and `SignInForm` in jsdom and asserts zero violations; runs as part of `pnpm test`
+- [ ] Lighthouse a11y ≥ 95 / perf ≥ 90 live verification (needs a running dev server with seeded Supabase; defer to a session that can boot the stack)
 
 ## Phase 7 — Self-host bundle
 

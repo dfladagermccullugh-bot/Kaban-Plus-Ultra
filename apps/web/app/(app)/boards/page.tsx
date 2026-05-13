@@ -5,6 +5,7 @@ import { LayoutGrid, UserCircle } from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { BoardCard } from './board-card';
+import { ImportDropzone } from './import-dropzone';
 import { NewBoardForm } from './new-board-form';
 import { PullToRefresh } from './pull-to-refresh';
 
@@ -24,6 +25,7 @@ export default async function BoardsPage() {
 
   return (
     <PullToRefresh>
+      <ImportDropzone />
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-8">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-2">

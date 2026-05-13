@@ -9,6 +9,7 @@ import { notFound, redirect } from 'next/navigation';
 import { BoardSettings, type Collaborator } from './board-settings';
 import { BoardView } from './board-view';
 import { ExportButton } from './export-button';
+import { ImportDropzone } from './import-dropzone';
 import { PresenceAvatars } from './presence-avatars';
 
 export const dynamic = 'force-dynamic';
@@ -90,6 +91,7 @@ export default async function BoardPage({ params }: Params) {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <ImportDropzone boardId={board.id} />
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-bg-elevated/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3 min-w-0">
           <Link

@@ -1,10 +1,16 @@
 'use client';
 
 import { getSiteUrl } from '@/lib/env';
-import { createClient } from '@/lib/supabase/browser';
 import { Button, Input, Label } from '@kpu/ui';
 import { CheckCircle2, Mail } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
+
+// The supabase browser client is only needed inside event handlers; defer it
+// so the sign-in page stays small for first paint + Lighthouse perf score.
+async function getSupabase() {
+  const mod = await import('@/lib/supabase/browser');
+  return mod.createClient();
+}
 
 type Status =
   | { kind: 'idle' }
@@ -20,7 +26,7 @@ export function SignInForm({ next }: { next: string }) {
     event.preventDefault();
     setStatus({ kind: 'sending' });
     try {
-      const supabase = createClient();
+      const supabase = await getSupabase();
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -40,7 +46,7 @@ export function SignInForm({ next }: { next: string }) {
   async function signInWithGoogle() {
     setStatus({ kind: 'sending' });
     try {
-      const supabase = createClient();
+      const supabase = await getSupabase();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

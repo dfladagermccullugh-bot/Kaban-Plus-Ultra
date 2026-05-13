@@ -31,6 +31,7 @@
     "@tiptap/react": "2.10.3",
     "@tiptap/starter-kit": "2.10.3",
     "blurhash": "2.0.5",
+    "framer-motion": "^12.38.0",
     "jszip": "3.10.1",
     "lucide-react": "0.469.0",
     "next": "15.5.18",
@@ -42,9 +43,13 @@
   "devDependencies": {
     "@kpu/config": "workspace:*",
     "@tailwindcss/postcss": "4.0.0-beta.7",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "22.10.5",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
+    "axe-core": "^4.11.4",
+    "jsdom": "^29.1.1",
     "tailwindcss": "4.0.0-beta.7",
     "typescript": "5.7.2",
     "vitest": "2.1.8"

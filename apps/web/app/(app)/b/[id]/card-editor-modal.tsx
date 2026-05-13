@@ -1,7 +1,10 @@
 'use client';
 
+import { useCoarsePointer } from '@/lib/use-media-query';
 import { cn } from '@kpu/ui';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Camera, Check, ImageOff, Loader2, Tag, X } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,8 +21,20 @@ import { CoverImage } from './cover-image';
 import { LabelPicker } from './label-picker';
 import { PeerEditingBanner } from './peer-editing-banner';
 import { setLocalViewingCardId } from './presence-bus';
-import { TiptapEditor } from './tiptap-editor';
 import type { ImageModel, LabelModel } from './types';
+
+// The Tiptap stack (~140 kB of JS) is the bulk of the modal route's
+// First Load JS. Defer it until the modal actually mounts so /b/[id]
+// stays light when the user isn't editing a card.
+const TiptapEditor = dynamic(
+  () => import('./tiptap-editor').then((m) => ({ default: m.TiptapEditor })),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[12rem]" aria-hidden />,
+  },
+);
+
+const MODAL_SPRING = { type: 'spring' as const, stiffness: 220, damping: 28 };
 
 type CardForModal = {
   id: string;
@@ -51,6 +66,9 @@ export function CardEditorModal({
   selfId,
 }: Props) {
   const router = useRouter();
+  const reduce = useReducedMotion();
+  const coarse = useCoarsePointer();
+  const [open, setOpen] = useState(true);
   const [title, setTitle] = useState(card.title);
   const [body, setBody] = useState(card.body_md);
   const [labels, setLabels] = useState<LabelModel[]>(initialLabels);
@@ -61,7 +79,11 @@ export function CardEditorModal({
   const [showLabelPicker, setShowLabelPicker] = useState(false);
 
   // ─── Close behavior ─────────────────────────────────────────────────────
+  // Trigger the exit animation first, then route back when it finishes.
   const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+  const handleExitComplete = useCallback(() => {
     router.push(`/b/${boardId}`, { scroll: false });
   }, [router, boardId]);
 
@@ -249,141 +271,204 @@ export function CardEditorModal({
     [labels, cardLabelIds],
   );
 
+  // ─── Motion variants ────────────────────────────────────────────────────
+  // Reduced motion → instant; otherwise spring in/out. The dialog variant
+  // fades + scales from the center; the sheet variant slides up from the
+  // bottom of the viewport on coarse pointers (touch).
+  const backdrop = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1 },
+  };
+  const dialog = reduce
+    ? { hidden: { opacity: 0 }, visible: { opacity: 1 } }
+    : { hidden: { opacity: 0, y: 8, scale: 0.98 }, visible: { opacity: 1, y: 0, scale: 1 } };
+  const sheet = reduce
+    ? { hidden: { opacity: 0 }, visible: { opacity: 1 } }
+    : { hidden: { y: '100%' }, visible: { y: 0 } };
+
+  const isSheet = coarse;
+  const surfaceShell = isSheet
+    ? 'fixed inset-x-0 bottom-0 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-b-0 border-border bg-bg-elevated shadow-xl'
+    : 'relative w-full max-w-3xl rounded-lg border border-border bg-bg-elevated shadow-lg';
+
+  const transition = reduce ? { duration: 0 } : MODAL_SPRING;
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Card editor"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-12 backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in"
-    >
-      <button
-        type="button"
-        aria-label="Close backdrop"
-        tabIndex={-1}
-        onClick={close}
-        className="fixed inset-0 cursor-default"
-      />
-      <div className="relative w-full max-w-3xl rounded-lg border border-border bg-bg-elevated shadow-lg">
-        {/* Cover image */}
-        {coverImage ? (
-          <CoverImage image={coverImage} className="h-40 w-full rounded-t-lg object-cover" />
-        ) : null}
-
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={close}
-          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-sm bg-bg-elevated/90 text-text-muted hover:bg-surface hover:text-text"
-        >
-          <X size={16} strokeWidth={1.5} aria-hidden />
-        </button>
-
-        <div className="space-y-4 p-6">
-          <PeerEditingBanner cardId={card.id} selfId={selfId} />
-
-          {/* Title */}
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={handleTitleBlur}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-            }}
-            maxLength={200}
-            placeholder="Untitled"
-            className="w-full rounded-sm border border-transparent bg-transparent px-2 py-1 text-xl font-semibold focus-visible:border-accent focus-visible:bg-bg focus-visible:outline-none"
-          />
-
-          {/* Attached labels */}
-          {attachedLabels.length > 0 && (
-            <CardLabelChips labels={attachedLabels} onRemove={(id) => handleToggleLabel(id)} />
+    <AnimatePresence onExitComplete={handleExitComplete}>
+      {open && (
+        <motion.div
+          key="card-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Card editor"
+          variants={backdrop}
+          initial="hidden"
+          animate="visible"
+          exit="hidden"
+          transition={reduce ? { duration: 0 } : { duration: 0.18 }}
+          className={cn(
+            'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm',
+            isSheet
+              ? 'flex items-end justify-center'
+              : 'flex items-start justify-center overflow-y-auto px-4 py-12',
           )}
+        >
+          <button
+            type="button"
+            aria-label="Close backdrop"
+            tabIndex={-1}
+            onClick={close}
+            className="fixed inset-0 cursor-default"
+          />
+          <motion.div
+            variants={isSheet ? sheet : dialog}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+            transition={transition}
+            className={surfaceShell}
+          >
+            {/* Sheet drag handle + sticky close (touch) */}
+            {isSheet && (
+              <div className="sticky top-0 z-20 flex items-center justify-center bg-bg-elevated/95 pb-1 pt-2 backdrop-blur-sm">
+                <div className="h-1 w-10 rounded-full bg-border" aria-hidden />
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={close}
+                  className="absolute right-3 top-2 inline-flex h-8 w-8 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text"
+                >
+                  <X size={16} strokeWidth={1.5} aria-hidden />
+                </button>
+              </div>
+            )}
+            {/* Cover image */}
+            {coverImage ? (
+              <CoverImage
+                image={coverImage}
+                className={cn('h-40 w-full object-cover', isSheet ? '' : 'rounded-t-lg')}
+              />
+            ) : null}
 
-          {/* Toolbar row */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+            {!isSheet && (
               <button
                 type="button"
-                onClick={() => setShowLabelPicker((v) => !v)}
-                className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-bg px-2 text-xs text-text-muted hover:bg-surface hover:text-text"
+                aria-label="Close"
+                onClick={close}
+                className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-sm bg-bg-elevated/90 text-text-muted hover:bg-surface hover:text-text"
               >
-                <Tag size={14} strokeWidth={1.5} aria-hidden />
-                Labels
+                <X size={16} strokeWidth={1.5} aria-hidden />
               </button>
-              {showLabelPicker && (
-                <LabelPicker
-                  allLabels={labels}
-                  selectedIds={cardLabelIds}
-                  onToggle={handleToggleLabel}
-                  onCreate={handleCreateLabel}
-                  onClose={() => setShowLabelPicker(false)}
+            )}
+
+            <div className="space-y-4 p-6">
+              <PeerEditingBanner cardId={card.id} selfId={selfId} />
+
+              {/* Title */}
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+                maxLength={200}
+                placeholder="Untitled"
+                className="w-full rounded-sm border border-transparent bg-transparent px-2 py-1 text-xl font-semibold focus-visible:border-accent focus-visible:bg-bg focus-visible:outline-none"
+              />
+
+              {/* Attached labels */}
+              {attachedLabels.length > 0 && (
+                <CardLabelChips labels={attachedLabels} onRemove={(id) => handleToggleLabel(id)} />
+              )}
+
+              {/* Toolbar row */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowLabelPicker((v) => !v)}
+                    className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-bg px-2 text-xs text-text-muted hover:bg-surface hover:text-text"
+                  >
+                    <Tag size={14} strokeWidth={1.5} aria-hidden />
+                    Labels
+                  </button>
+                  {showLabelPicker && (
+                    <LabelPicker
+                      allLabels={labels}
+                      selectedIds={cardLabelIds}
+                      onToggle={handleToggleLabel}
+                      onCreate={handleCreateLabel}
+                      onClose={() => setShowLabelPicker(false)}
+                    />
+                  )}
+                </div>
+
+                <CoverImagePicker
+                  images={cardImages}
+                  currentId={coverImageId}
+                  onChange={handleSetCover}
                 />
+
+                <AddPhotoButton
+                  disabled={uploadStatus.state === 'uploading'}
+                  onPick={async (file) => {
+                    const insert = insertImageRef.current;
+                    if (insert) {
+                      await insert(file);
+                    } else {
+                      // Fallback: editor not mounted yet — just upload so the
+                      // image lands in the gallery and can be set as cover.
+                      await handleImageUpload(file);
+                    }
+                  }}
+                />
+
+                <div className="ml-auto flex items-center gap-2 text-xs text-text-muted">
+                  <SaveStatus state={bodySave} />
+                </div>
+              </div>
+
+              {/* Tiptap editor */}
+              <div className="rounded-md border border-border bg-bg">
+                <TiptapEditor
+                  initialMarkdown={card.body_md}
+                  onChangeMarkdown={scheduleBodySave}
+                  registerInsertImage={(fn) => {
+                    insertImageRef.current = fn;
+                  }}
+                  onImageDropped={async (file) => {
+                    const r = await handleImageUpload(file);
+                    if (!r) return null;
+                    // Return a signed URL for the editor to render.
+                    const { getSignedImageUrl } = await import('./actions');
+                    const signed = await getSignedImageUrl(r.storagePath);
+                    if (signed.ok) return signed.data.url;
+                    return null;
+                  }}
+                />
+              </div>
+
+              {uploadStatus.state === 'uploading' && (
+                <p className="flex items-center gap-2 text-xs text-text-muted">
+                  <Loader2 size={14} strokeWidth={1.5} className="animate-spin" aria-hidden />
+                  Uploading image…
+                </p>
+              )}
+              {uploadStatus.state === 'error' && (
+                <p className="flex items-center gap-2 text-xs text-danger">
+                  <ImageOff size={14} strokeWidth={1.5} aria-hidden />
+                  {uploadStatus.message}
+                </p>
               )}
             </div>
-
-            <CoverImagePicker
-              images={cardImages}
-              currentId={coverImageId}
-              onChange={handleSetCover}
-            />
-
-            <AddPhotoButton
-              disabled={uploadStatus.state === 'uploading'}
-              onPick={async (file) => {
-                const insert = insertImageRef.current;
-                if (insert) {
-                  await insert(file);
-                } else {
-                  // Fallback: editor not mounted yet — just upload so the
-                  // image lands in the gallery and can be set as cover.
-                  await handleImageUpload(file);
-                }
-              }}
-            />
-
-            <div className="ml-auto flex items-center gap-2 text-xs text-text-muted">
-              <SaveStatus state={bodySave} />
-            </div>
-          </div>
-
-          {/* Tiptap editor */}
-          <div className="rounded-md border border-border bg-bg">
-            <TiptapEditor
-              initialMarkdown={card.body_md}
-              onChangeMarkdown={scheduleBodySave}
-              registerInsertImage={(fn) => {
-                insertImageRef.current = fn;
-              }}
-              onImageDropped={async (file) => {
-                const r = await handleImageUpload(file);
-                if (!r) return null;
-                // Return a signed URL for the editor to render.
-                const { getSignedImageUrl } = await import('./actions');
-                const signed = await getSignedImageUrl(r.storagePath);
-                if (signed.ok) return signed.data.url;
-                return null;
-              }}
-            />
-          </div>
-
-          {uploadStatus.state === 'uploading' && (
-            <p className="flex items-center gap-2 text-xs text-text-muted">
-              <Loader2 size={14} strokeWidth={1.5} className="animate-spin" aria-hidden />
-              Uploading image…
-            </p>
-          )}
-          {uploadStatus.state === 'error' && (
-            <p className="flex items-center gap-2 text-xs text-danger">
-              <ImageOff size={14} strokeWidth={1.5} aria-hidden />
-              {uploadStatus.message}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 6 underway. Markdown `.zip` round-trip is now complete: export (`/b/[id]/export` + header button) and drag-drop import (`<ZipDropzone>` on `/boards` creates a new board; on `/b/[id]` merges into the existing one). Animation polish is in: subtle Framer Motion spring page transitions on the `(app)` segment, and the card editor modal is now a bottom-sheet on `(pointer: coarse)` (touch) and a centered dialog elsewhere — both honor `prefers-reduced-motion`. Axe-core is wired into the Vitest CI pass (a11y gate; 3 component tests). Perf: dynamic-importing the Tiptap stack drops `/b/[id]/c/[cardId]` from 263 → 161 kB First Load JS, and deferring the Supabase browser client at sign-in drops `/sign-in` from 153 → 116 kB. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification.
+**Current phase:** Phase 6 wrap + Phase 7 kickoff. Hosted Supabase project (ref `xqdhpxfgrckjzzbenivp`) is now live — migrations `0001` → `0006` applied via the Supabase MCP connector, `apps/web/.env.local` written with the project URL + anon key. The mobile bottom sheet is now drag-to-dismiss (handle-initiated `useDragControls`, threshold `offset.y > 120` or `velocity.y > 500`; reduced-motion users keep tap-to-close). Phase 7 self-host kickoff has shipped: `docker/Dockerfile.web` (multi-stage Next.js standalone), `docker/docker-compose.yml` (kaban-web + caddy; hosted-Supabase by default, upstream self-host stack layered in via second compose), `docker/Caddyfile`, `docker/.env.example`, `docs/SELF_HOSTING.md`. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification, end-to-end smoke against the connected Supabase (deferred — harness has no browser to drive magic-link sign-in).
 
 ---
 
@@ -95,15 +95,21 @@ Goal: own your data; final polish pass.
 - [x] Animation polish: page transitions on `(app)` segment (Framer Motion spring) + card-editor modal becomes a bottom-sheet on `(pointer: coarse)`; centered dialog on fine pointer. Exit animation runs before route push via `AnimatePresence`
 - [x] `prefers-reduced-motion` QA pass — page transition and modal both collapse to a 0-duration cross-fade when reduced motion is requested (`useReducedMotion`)
 - [x] axe-core in CI — `apps/web/tests/a11y.test.tsx` mounts `Button`/`Input`/`Label`, `ThemeToggle`, and `SignInForm` in jsdom and asserts zero violations; runs as part of `pnpm test`
+- [x] Drag-to-dismiss the mobile bottom sheet — `useDragControls` started from the sticky handle row (so body scroll doesn't trigger drag); closes on `offset.y > 120` or `velocity.y > 500`. Reduced-motion users keep tap-to-close
 - [ ] Lighthouse a11y ≥ 95 / perf ≥ 90 live verification (needs a running dev server with seeded Supabase; defer to a session that can boot the stack)
 
 ## Phase 7 — Self-host bundle
 
 Goal: one command spins up a private instance.
 
-- [ ] `docker/docker-compose.yml` with supabase + kaban-web + caddy
-- [ ] `.env.example` for self-host
-- [ ] `docs/SELF_HOSTING.md` walkthrough completed end-to-end on a fresh VPS
+- [x] `docker/docker-compose.yml` with kaban-web + caddy (supabase: hosted by default; upstream `supabase/supabase` compose layered in for full self-host — see `docs/SELF_HOSTING.md`)
+- [x] `docker/Dockerfile.web` — multi-stage Next.js `output: 'standalone'` build
+- [x] `docker/Caddyfile` — auto-HTTPS reverse proxy
+- [x] `.env.example` for self-host
+- [x] `docs/SELF_HOSTING.md` — kickoff walkthrough (hosted Supabase + self-hosted Supabase paths)
+- [ ] End-to-end fresh-VPS dry run (needs a Docker host outside the harness)
+- [ ] Single `kaban-stack.yml` that bundles upstream Supabase pinned to a known-good tag
+- [ ] One-liner installer (`curl ... | sh`) with DNS pre-flight + first-boot migrations
 - [ ] First-run wizard for the initial admin account
 
 ## Phase 8 — Store submission (human-driven)

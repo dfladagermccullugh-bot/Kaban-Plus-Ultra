@@ -2,7 +2,13 @@
 
 import { useCoarsePointer } from '@/lib/use-media-query';
 import { cn } from '@kpu/ui';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import {
+  AnimatePresence,
+  type PanInfo,
+  motion,
+  useDragControls,
+  useReducedMotion,
+} from 'framer-motion';
 import { Camera, Check, ImageOff, Loader2, Tag, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -293,6 +299,19 @@ export function CardEditorModal({
 
   const transition = reduce ? { duration: 0 } : MODAL_SPRING;
 
+  // Drag-to-dismiss (sheet only, motion-allowed only). The body of the sheet
+  // scrolls vertically; we don't want every scroll gesture to drag the sheet,
+  // so we gate the listener on a `useDragControls` instance that we only start
+  // from the sticky drag-handle row.
+  const dragControls = useDragControls();
+  const dragEnabled = isSheet && !reduce;
+  const handleDragEnd = useCallback(
+    (_e: PointerEvent | MouseEvent | TouchEvent, info: PanInfo) => {
+      if (info.offset.y > 120 || info.velocity.y > 500) close();
+    },
+    [close],
+  );
+
   return (
     <AnimatePresence onExitComplete={handleExitComplete}>
       {open && (
@@ -327,15 +346,34 @@ export function CardEditorModal({
             exit="hidden"
             transition={transition}
             className={surfaceShell}
+            drag={dragEnabled ? 'y' : false}
+            dragListener={false}
+            dragControls={dragControls}
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0, bottom: 0.4 }}
+            dragMomentum={false}
+            onDragEnd={dragEnabled ? handleDragEnd : undefined}
           >
             {/* Sheet drag handle + sticky close (touch) */}
             {isSheet && (
-              <div className="sticky top-0 z-20 flex items-center justify-center bg-bg-elevated/95 pb-1 pt-2 backdrop-blur-sm">
-                <div className="h-1 w-10 rounded-full bg-border" aria-hidden />
+              <div
+                onPointerDown={(e) => {
+                  if (dragEnabled) dragControls.start(e);
+                }}
+                className="sticky top-0 z-20 flex items-center justify-center bg-bg-elevated/95 pb-1 pt-2 backdrop-blur-sm touch-none"
+                style={{ cursor: dragEnabled ? 'grab' : undefined }}
+              >
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Drag to dismiss"
+                  className="h-1 w-10 rounded-full bg-border"
+                />
                 <button
                   type="button"
                   aria-label="Close"
                   onClick={close}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="absolute right-3 top-2 inline-flex h-8 w-8 items-center justify-center rounded-sm text-text-muted hover:bg-surface hover:text-text"
                 >
                   <X size={16} strokeWidth={1.5} aria-hidden />

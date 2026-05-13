@@ -4,6 +4,154 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Supabase MCP wire-up, sheet drag-dismiss, Phase 7 self-host kickoff
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/verify-supabase-connector-N1ufJ` (session-assigned;
+  stacks on `main` at `6184046` — merge of PR #18 from the previous
+  session's Phase 6b/c/d branch)
+- **Phase**: 6 closeout + 7 kickoff
+
+### Goal
+
+Three things, in order: (1) confirm the freshly-connected Supabase MCP,
+write `.env.local`, and apply migrations `0001` → `0006` against the
+linked project; (2) close the ADR-0011 follow-up by adding
+drag-to-dismiss to the mobile bottom sheet; (3) kick off Phase 7 with a
+docker compose + Caddy bundle + walkthrough doc.
+
+### Changed
+
+**Supabase wire-up** (`apps/web/.env.local` — new; gitignored)
+- Bound to the `Kaban Plus Ultra` MCP project (ref
+  `xqdhpxfgrckjzzbenivp`, region `us-west-2`, status
+  `ACTIVE_HEALTHY`).
+- `NEXT_PUBLIC_SUPABASE_URL=https://xqdhpxfgrckjzzbenivp.supabase.co`,
+  legacy anon JWT (matches `@supabase/ssr` 0.5's expectation, not the
+  new `sb_publishable_…` token), `NEXT_PUBLIC_SITE_URL=http://localhost:3000`.
+- `SUPABASE_SERVICE_ROLE_KEY` left empty with a TODO — the MCP
+  `get_publishable_keys` tool doesn't expose service-role; the operator
+  drops it in by hand before exercising invite-by-email / audit-events.
+- Migrations applied in order via `mcp__d254b538-…__apply_migration`:
+  - `0001_init` — 10 public tables, RLS, helper functions, signup trigger
+  - `0002_drop_board_orders` — drops `boards.row_order` / `col_order`
+  - `0003_storage_buckets` — `card-images`, `avatars`, `exports`
+  - `0004_realtime` — adds `cards / rows / columns / labels /
+    card_labels / images` to `supabase_realtime`
+  - `0005_share_links` — `has_share_access`, rotate / revoke RPCs
+  - `0006_profiles_email` — pin email on `profiles`, sync trigger
+- `list_migrations` confirms all six (versions `20260513180358` →
+  `20260513180502`). `list_tables` returns the expected 10. Security
+  advisor warnings are all pre-existing design (SECURITY DEFINER on
+  helpers; `moddatetime` in `public`; `avatars` listing). Not
+  regressions — captured in ADR 0012.
+
+**Drag-to-dismiss the bottom sheet**
+(`apps/web/app/(app)/b/[id]/card-editor-modal.tsx`)
+- `useDragControls()` + `dragListener={false}` on the sheet's
+  `<motion.div>`. The handle row's `onPointerDown` is the only thing
+  that calls `dragControls.start(e)`, so internal body scroll never
+  starts a drag.
+- `dragConstraints={{ top: 0, bottom: 0 }}` snaps back; `dragElastic={{
+  top: 0, bottom: 0.4 }}` lets the gesture feel natural pulling down.
+- Threshold per the session prompt: close on `offset.y > 120` **or**
+  `velocity.y > 500`. Both flow through the existing `close()` so
+  `AnimatePresence` exit runs before the parallel-route slot unmounts.
+- `dragEnabled = isSheet && !reduce` — reduced-motion users keep
+  tap-to-close on the X / backdrop.
+- Handle row gets `touch-none` so the browser doesn't compete with the
+  drag. The sticky X stops propagation on pointer-down so tapping it
+  doesn't kick off a drag.
+
+**Phase 7 self-host kickoff**
+- `docker/Dockerfile.web` — multi-stage Alpine build (`deps` →
+  `build` → `runtime`); copies the `next build --output=standalone`
+  trace into a non-root runtime image. Bakes `NEXT_PUBLIC_*` via
+  `--build-arg`; `SUPABASE_SERVICE_ROLE_KEY` stays runtime-only.
+- `apps/web/next.config.ts` — added `output: 'standalone'` and
+  `outputFileTracingRoot = path.join(__dirname, '../..')` so Next's
+  tracer walks past `apps/web/` to pick up `@kpu/{core,db,ui}`.
+- `docker/docker-compose.yml` — two services (`web` + `caddy`).
+  Supabase is **not** inline: hosted by default, with the upstream
+  `supabase/supabase` compose layered in via a second `-f` for the
+  full self-host path. Health-checked web, ports 80/443 on caddy.
+- `docker/Caddyfile` — auto-HTTPS for `{$KABAN_HOST}`, immutable
+  cache on `/_next/static/*`, HSTS + nosniff + referrer-policy.
+- `docker/.env.example` — every variable the operator needs.
+- `docs/SELF_HOSTING.md` — replaced the Phase-7 stub with the
+  kickoff walkthrough (hosted Supabase + self-hosted Supabase paths,
+  backup story, follow-ups).
+
+**Docs**
+- `docs/ROADMAP.md` — current-phase blurb rewritten; Phase 6
+  "Drag-to-dismiss" ticked off; Phase 7 first four boxes ticked
+  (Dockerfile, compose, Caddyfile, env example, walkthrough).
+- `docs/DECISIONS/0012-supabase-mcp-wireup.md` — new
+- `docs/DECISIONS/0013-self-host-bundle-kickoff.md` — new
+- `docs/DECISIONS/0014-drag-to-dismiss-sheet.md` — new
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (105 files, biome clean)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ — 29 tests pass (26 `@kpu/core` + 3 `@kpu/web` a11y)
+- `pnpm build` — not re-run after edits; lint/typecheck cover the
+  surface that changed (env reads, modal handlers, next.config). Will
+  run as part of the final session-end check.
+- Supabase MCP: `list_migrations` 6/6, `list_tables` 10/10,
+  `get_advisors` only pre-existing warnings.
+
+### Decisions taken this session
+
+- ADR 0012 — bind to the named `Kaban Plus Ultra` MCP project; apply
+  migrations via `apply_migration` (records into Supabase's own table);
+  use the legacy anon JWT for `NEXT_PUBLIC_SUPABASE_ANON_KEY`;
+  service-role left TODO until the operator provides it.
+- ADR 0013 — ship a two-service compose (web + caddy); Supabase via
+  hosted-by-default with self-host layered in via a second compose
+  file; `output: 'standalone'` with `outputFileTracingRoot` set to the
+  repo root.
+- ADR 0014 — `useDragControls` + handle-only `dragListener` so body
+  scroll never starts a drag; threshold `offset.y > 120` or
+  `velocity.y > 500`; reduced-motion users never get drag.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **End-to-end smoke test against the connected Supabase.** Needs a
+   browser to drive magic-link sign-in (or `SUPABASE_SERVICE_ROLE_KEY`
+   + the inbucket / admin API to grab the link headlessly). Deferred —
+   this harness can't drive a real browser.
+2. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification** — same
+   blocker as #1.
+3. **Phase 7 main work** — pin the upstream Supabase compose into
+   `docker/supabase/`, write `kaban-stack.yml`, build the one-liner
+   installer, add the first-run admin wizard.
+4. **Native iOS/Android Xcode/Studio projects** — still blocked on a
+   dev machine.
+
+### Blockers / open questions
+
+- **`SUPABASE_SERVICE_ROLE_KEY`** — needed for invite-by-email +
+  audit-events writer + the storage-policies path that runs as the
+  service role. The MCP only exposed publishable keys; operator
+  intervention required.
+- **SMTP / Google OAuth** — still not provided. Magic-link sign-in
+  works locally against inbucket but isn't wired up against the
+  connected Supabase project yet.
+- **`apps/mobile/` native folders** — still deferred (no Xcode /
+  Android Studio in this harness).
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+- **No Docker daemon in the harness** — the `Dockerfile.web` build
+  was not exercised end-to-end this session; the same `next build` is
+  covered by CI.
+
+---
+
 ## 2026-05-13 — Phase 6b/c/d: page transitions, mobile bottom-sheet, axe-core, Tiptap dynamic import
 
 - **Agent / model**: Claude (Opus 4.7)

@@ -35,8 +35,8 @@ See `docs/VISION.md` for the full backstory.
 
 ## Branch & PR conventions
 
-- Active branch: each web session is assigned a fresh branch by the harness (e.g. `claude/kaban-plus-ultra-dev-<id>`). Honor whatever branch the system prompt names — never push to `main`. Previous session branches: `claude/chat-analysis-app-2fsuX` (Phases 0–1), `claude/kanban-plus-ultra-dev-VNoFa` (Phase 2), `claude/kaban-plus-ultra-dev-8Vmfo` (Phase 3).
-- Latest tip: `claude/kaban-plus-ultra-dev-8Vmfo` at `0ef1dd6` (Phase 3 — Tiptap editor + image upload + labels + filter bar). One commit below is `0451b2b` (Next CVE bump). Both stack on top of `main` at `86b6a89` (merge of PR #6 from `claude/kanban-plus-ultra-dev-VNoFa`). The Phase 3 branch is unmerged — review/merge before the next session, or stack on top.
+- Active branch: each web session is assigned a fresh branch by the harness (e.g. `claude/kaban-plus-ultra-dev-<id>`). Honor whatever branch the system prompt names — never push to `main`. Previous session branches: `claude/chat-analysis-app-2fsuX` (Phases 0–1), `claude/kanban-plus-ultra-dev-VNoFa` (Phase 2), `claude/kaban-plus-ultra-dev-8Vmfo` (Phase 3), `claude/kaban-phase-3-continue-Dm3T6` (Phase 4 kickoff — realtime + presence), `claude/phase-4-realtime-channel-MkZ7T` (Phase 4 closeout — invites, share links, peer-editing, label mgmt, virtualization).
+- Latest tip: `claude/phase-4-realtime-channel-MkZ7T` at `25b5209` (Phase 4 closeout). It stacks directly on `main` at `b581c86` (merge of PR #9). The branch is unmerged — review/merge before the next session, or stack the new branch on top of it.
 - Commits: [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat(board): add row collapse`)
 - Push at the end of every session. Do NOT open PRs unless explicitly asked.
 

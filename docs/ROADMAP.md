@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 4 closed — audit-events writer + invite directory lookup (via `profiles.email`, migration 0006) are in. Phase 5 kickoff: `apps/mobile/` Capacitor shell scaffolded, drag haptics + pull-to-refresh on `/boards` live. Native iOS/Android projects still need to be generated on a dev machine with Xcode / Android Studio (`npx cap add ios|android`).
+**Current phase:** Phase 5 nearly closed — Capacitor shell, drag haptics, pull-to-refresh, and the camera plugin (`@capacitor/camera` via `apps/web/lib/camera.ts`, web fallback to `<input type="file" capture>`) are all in. Phase 6 kickoff: board → Markdown `.zip` export (`/b/[id]/export` route handler + header button) is live. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, drag-drop `.zip` import, and the final polish pass.
 
 ---
 
@@ -82,7 +82,7 @@ Goal: real native apps on iPhone and Android.
 - [ ] Android Studio project + adaptive icon set
 - [x] Touch-tuned drag with haptic on pickup/drop (`@capacitor/haptics`; respects `prefers-reduced-motion`)
 - [x] Pull-to-refresh on boards list (touch-only, threshold 72px → `router.refresh()`)
-- [ ] Camera plugin for card image capture
+- [x] Camera plugin for card image capture (`@capacitor/camera`; web fallback uses a hidden `<input type="file" accept="image/*" capture="environment">`; both feed `uploadCardImage`)
 - [ ] TestFlight build (internal testers)
 - [ ] Play Console Internal Testing build
 
@@ -90,7 +90,7 @@ Goal: real native apps on iPhone and Android.
 
 Goal: own your data; final polish pass.
 
-- [ ] Board → `.zip` of `.md` files (one folder per row, one file per card)
+- [x] Board → `.zip` of `.md` files (one folder per row, one file per card; YAML frontmatter for title/id/row/column/labels/cover; README matrix; jszip + `/b/[id]/export` route handler + `<ExportButton>` in the header)
 - [ ] Drag-drop import (`.zip` or folder of `.md`)
 - [ ] Animation polish: page transitions, modal sheets on mobile
 - [ ] `prefers-reduced-motion` QA pass

@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { BoardSettings, type Collaborator } from './board-settings';
 import { BoardView } from './board-view';
+import { ExportButton } from './export-button';
 import { PresenceAvatars } from './presence-avatars';
 
 export const dynamic = 'force-dynamic';
@@ -109,6 +110,7 @@ export default async function BoardPage({ params }: Params) {
               accentColor: user.accentColor ?? 'indigo',
             }}
           />
+          <ExportButton boardId={board.id} />
           <BoardSettings
             boardId={board.id}
             isOwner={isOwner}

@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 5 nearly closed — Capacitor shell, drag haptics, pull-to-refresh, and the camera plugin (`@capacitor/camera` via `apps/web/lib/camera.ts`, web fallback to `<input type="file" capture>`) are all in. Phase 6 kickoff: board → Markdown `.zip` export (`/b/[id]/export` route handler + header button) is live. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, drag-drop `.zip` import, and the final polish pass.
+**Current phase:** Phase 6 underway. Markdown `.zip` round-trip is now complete: export (`/b/[id]/export` + header button) and drag-drop import (`<ZipDropzone>` on `/boards` creates a new board; on `/b/[id]` merges into the existing one). Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, page transitions + mobile modal sheets, a11y + perf passes.
 
 ---
 
@@ -91,7 +91,7 @@ Goal: real native apps on iPhone and Android.
 Goal: own your data; final polish pass.
 
 - [x] Board → `.zip` of `.md` files (one folder per row, one file per card; YAML frontmatter for title/id/row/column/labels/cover; README matrix; jszip + `/b/[id]/export` route handler + `<ExportButton>` in the header)
-- [ ] Drag-drop import (`.zip` or folder of `.md`)
+- [x] Drag-drop import (`.zip`) — `/boards` creates a new board; `/b/[id]` merges into the existing board (rows / columns / labels matched by case-insensitive title, missing ones appended; cards always appended). Pure parser in `@kpu/core`; server actions per page; shared `<ZipDropzone>` overlay
 - [ ] Animation polish: page transitions, modal sheets on mobile
 - [ ] `prefers-reduced-motion` QA pass
 - [ ] a11y audit (axe-core in CI; Lighthouse a11y ≥ 95)

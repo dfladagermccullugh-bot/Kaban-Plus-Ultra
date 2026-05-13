@@ -4,6 +4,158 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 6 continuation: Markdown ZIP import (round-trip with the export)
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-phase-6-continuation-P0kwC` (session-
+  assigned; stacks on `main` at `cf7fdf4` after PRs #15 and #16
+  merged the previous session's camera + export work)
+- **Phase**: 6 (Markdown export/import + polish)
+
+### Goal
+Ship the round-trip counterpart to the Markdown ZIP export from the
+previous session: drop a `.zip` on `/boards` to create a brand-new
+board, drop on `/b/[id]` to merge into the current one.
+
+### Changed
+
+**Core parser** (`packages/core/src/markdown-import.ts` — new)
+- Pure TS, framework-free, no runtime deps. Inputs are zip entries
+  (`{path, content}[]`); outputs are a normalized `ImportedBoard`
+  (`{title, rows[], columns[], labels[], cards[]}`).
+- `parseCardFile(content)` extracts the YAML frontmatter the
+  exporter writes (always-double-quoted strings with `\\` / `\"`
+  escapes, inline string arrays, bare `null`, bare UUIDs) and
+  returns `{title, sourceId?, rowTitle, columnTitle, labels[],
+  cover, bodyMd}`. Strips the optional `# Title` heading the
+  exporter writes after the frontmatter so the round trip doesn't
+  duplicate the title.
+- `parseImportedBoard(entries)` walks the entries: top-level
+  `README.md` yields the board title; `<row-slug>/<card>.md` files
+  drive rows / columns / labels / cards (first-appearance order);
+  `<row-slug>/.gitkeep` preserves empty rows. Anything else is
+  silently skipped.
+- CRLF tolerance up front (`\r\n` → `\n` before checking the `---`
+  delimiters).
+- Whitelists exactly the YAML shapes the exporter emits; throws a
+  clear error on anything else so the user gets a useful message
+  instead of silent data loss.
+- Re-exported from `packages/core/src/index.ts`.
+
+**Tests** (`packages/core/src/markdown-import.test.ts` — new)
+- 13 tests covering: every frontmatter field, `cover: null`,
+  empty body, body that lacks the `# Title` heading, `\\` and
+  `\"` escapes, rejection of unknown escapes, missing frontmatter,
+  missing required field, CRLF, multi-row board round-trip,
+  empty-row `.gitkeep`, default title fallback, non-card path
+  skipping. Total tests in `@kpu/core`: 26 (was 13).
+
+**Server actions**
+- `apps/web/app/(app)/boards/import-actions.ts` — new
+  `importBoardFromZip(formData)`. Validates the file (`.zip`, ≤
+  20 MB, non-empty), unzips via dynamic-imported jszip, parses,
+  and inserts board → rows → columns → labels → cards →
+  card_labels under the signed-in user's anon client (RLS gates
+  every write). Returns the new board id so the client can
+  navigate to it.
+- `apps/web/app/(app)/b/[id]/import-actions.ts` — new
+  `mergeBoardFromZip(boardId, formData)`. Matches existing rows /
+  columns / labels by case-insensitive title; appends anything
+  missing at the end. Cards always append after the current max
+  position per (row, column) cell — never overwrite.
+
+**Client UI**
+- `apps/web/components/zip-dropzone.tsx` — new shared
+  `<ZipDropzone>`. Window-level drag-drop listener; renders a
+  full-viewport overlay only while a file is being dragged or a
+  result is pending. Guards against editor-targeted drops
+  (`closest('[contenteditable="true"], .ProseMirror')`) so Tiptap
+  image drops on the card editor route fall through to the
+  existing `onImageDropped` pipeline.
+- `apps/web/app/(app)/boards/import-dropzone.tsx` — new wrapper
+  that posts to `importBoardFromZip` and `router.push`es the new
+  board on success.
+- `apps/web/app/(app)/b/[id]/import-dropzone.tsx` — new wrapper
+  that posts to `mergeBoardFromZip` and `router.refresh()`es.
+- `apps/web/app/(app)/boards/page.tsx` + `b/[id]/page.tsx`
+  mount their respective dropzones at the top of the page body.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 6 import box ticked; status line
+  updated to reflect the round-trip being complete.
+- `docs/DECISIONS/0010-markdown-zip-import.md` — added; covers
+  the parser-in-core split, title-vs-id matching trade-off,
+  never-overwrite-on-merge, editor-drop guard, 20 MB cap, and
+  the cover-image limitation.
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅ (baseline)
+- `pnpm lint` ✅ (99 files; biome auto-formatted 4 files on
+  first pass)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ (26 tests in `@kpu/core` — was 13)
+- `pnpm build` ✅
+  - `/boards` 7.08 kB / **124 kB** First Load JS (was 5.73 kB /
+    122 kB — `<ImportDropzone>` is a client component sharing the
+    page chunk)
+  - `/b/[id]` 138 B / **196 kB** (unchanged — dropzone is
+    code-split via the import wrapper)
+  - `/b/[id]/(.)c/[cardId]` + direct route **263 kB** unchanged
+  - `/b/[id]/export` 135 B / **103 kB** unchanged
+  - `/sign-in` 2.2 kB / **153 kB** unchanged
+
+### ADRs added
+- `docs/DECISIONS/0010-markdown-zip-import.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Title-based row/column/label matching on merge**, not
+  `id`-based — see ADR 0010 for the trade-off. Cross-board
+  imports are the more common case; same-board re-imports just
+  duplicate which is the safer failure mode.
+- **Never overwrite an existing card on merge** — always append.
+  Idempotent re-imports therefore produce duplicates; documented
+  in the dropzone hint and in ADR 0010.
+- **Parser whitelists the exporter's exact YAML subset** rather
+  than depending on `js-yaml` / `yaml` (~80 kB). Throws on
+  unknown shapes so we never silently mis-parse.
+- **`<ZipDropzone>` guards against `[contenteditable="true"], .
+  ProseMirror` targets** so the Tiptap card editor's image-drop
+  pipeline keeps working when the card modal is open.
+- **Cover images are not re-attached on import.** The export
+  `.zip` doesn't ship binaries; round-tripping covers would need
+  a different archive format. Out of scope for v1.
+
+### Next up
+1. **Page transitions + mobile modal sheets** (Phase 6b). Framer
+   Motion springs only (golden rule #2). Card editor modal at
+   `/b/[id]/(.)c/[cardId]` becomes a bottom-sheet on
+   `(pointer: coarse)`; respect `prefers-reduced-motion`.
+2. **a11y pass** (Phase 6c). Wire axe-core into CI; target
+   Lighthouse a11y ≥ 95 on `/`, `/sign-in`, `/boards`, `/b/[id]`,
+   `/s/[id]`.
+3. **Perf pass** (Phase 6d). Biggest targets are
+   `/b/[id]/c/[cardId]` (263 kB First Load JS, Tiptap-heavy) and
+   `/sign-in` (153 kB). Lighthouse perf ≥ 90 on web.
+4. **Native projects (still deferred)**: `cd apps/mobile && npx
+   cap add ios && npx cap add android && npx cap sync` on a dev
+   machine with Xcode + Android Studio. iOS Info.plist
+   camera/library keys queue behind that.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 →
+  0006 must all be applied. Invite-by-email also needs
+  `SUPABASE_SERVICE_ROLE_KEY` + SMTP (or local supabase +
+  inbucket).
+- **Native shell** still cannot be generated in this harness (no
+  Xcode / Android Studio).
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-13 — Phase 5 closeout (camera plugin) + Phase 6 kickoff (Markdown ZIP export)
 
 - **Agent / model**: Claude (Opus 4.7)

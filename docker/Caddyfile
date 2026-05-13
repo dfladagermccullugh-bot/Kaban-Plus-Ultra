@@ -1,0 +1,23 @@
+# Auto-HTTPS reverse proxy in front of kaban-web. Set KABAN_HOST in `.env`
+# to your real hostname; Caddy will provision a Let's Encrypt cert for it.
+#
+# For a local-only dry run, leave KABAN_HOST=localhost; Caddy serves HTTPS
+# with a self-signed cert and accepts plain HTTP on :80.
+
+{$KABAN_HOST} {
+	encode zstd gzip
+	@hostHealth path /
+	reverse_proxy web:3000
+
+	# Long-cache the Next.js static asset chunks (immutable, hashed).
+	@nextStatic path /_next/static/*
+	header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+
+	# HSTS + nosniff. CSP is set in middleware.ts.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		-Server
+	}
+}

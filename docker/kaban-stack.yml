@@ -1,0 +1,43 @@
+# Bundled stack: Kaban Plus Ultra (web + caddy) merged on top of the upstream
+# Supabase self-host compose pinned in ./supabase/PIN.
+#
+# Prereq: run `./supabase/fetch.sh` once. That unpacks the upstream
+# `docker/` subtree into `./supabase/upstream/docker/` (bind-mounted volumes
+# and all). After that:
+#
+#   docker compose -f kaban-stack.yml up -d
+#   ./bootstrap.sh                     # applies supabase/migrations/*.sql
+#
+# Requires Docker Compose v2.20+ for `include:` support.
+
+name: kaban-stack
+
+# `include:` merges the upstream Supabase compose into this project. Relative
+# paths inside the included file resolve against its own directory, so
+# upstream's `./volumes/...` bind mounts still find their files under
+# `./supabase/upstream/docker/volumes/...`. We keep upstream stock — no
+# overrides here — so re-pinning is a single-file change in ./supabase/PIN.
+include:
+  - path: ./supabase/upstream/docker/docker-compose.yml
+  - path: ./docker-compose.yml
+
+# Overrides on top of the merged graph.
+#
+# - web: depend on the upstream `kong` gateway being healthy before we start,
+#        and point its public-Supabase URL at kong's in-network address. We
+#        keep NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} build-arg
+#        so the browser bundle can still talk to the public hostname; the
+#        runtime env below is what server-side calls (middleware, RSC) use.
+services:
+  web:
+    depends_on:
+      kong:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL:  ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      # Internal URL used by server-side @supabase/ssr clients; keeps the
+      # auth/realtime/rest hops on the docker network instead of hairpinning
+      # out through caddy.
+      SUPABASE_INTERNAL_URL:     http://kong:8000

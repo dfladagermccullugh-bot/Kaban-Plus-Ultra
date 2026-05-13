@@ -4,6 +4,148 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 7 main: pinned Supabase upstream + merged stack + `curl|sh` installer
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kanban-plus-ultra-dev-sG11L` (session-assigned;
+  stacks on `main` at `6f01fb8` — merge of PR #19 from the previous
+  session's Phase 7 kickoff branch)
+- **Phase**: 7 (main work — closes ADR 0013's "follow-ups")
+
+### Goal
+
+Land the Phase 7 main bundle: pin upstream Supabase at a known-good
+tag, merge it with our kaban-web + caddy compose, ship a first-boot
+migrations runner, and build the `curl ... | sh` installer the README
+will eventually advertise. Smoke-tests against the connected Supabase
+and the Lighthouse pass stay deferred (still no browser in the
+harness).
+
+### Changed
+
+**`.env.local` regeneration** (`apps/web/.env.local` — local-only,
+gitignored)
+- Rewritten from the MCP connector at session start: URL + legacy anon
+  JWT for project ref `xqdhpxfgrckjzzbenivp`. Carries forward the TODO
+  on `SUPABASE_SERVICE_ROLE_KEY` — MCP doesn't expose service-role.
+
+**Pinned upstream Supabase**
+(`docker/supabase/PIN`, `docker/supabase/fetch.sh`,
+`docker/supabase/.gitignore`, `docker/supabase/README.md`)
+- `PIN` is one line: `v1.24.09` — the last upstream self-host tag with
+  fully date-pinned service images.
+- `fetch.sh` `curl | tar`s `supabase/supabase@$PIN docker/` from the
+  GitHub source tarball into `docker/supabase/upstream/docker/`. Marker
+  file `.fetched-ref` short-circuits re-runs. Verified end-to-end
+  against the real tarball this session.
+- The `upstream/` directory is gitignored so we don't fork the upstream
+  tree.
+
+**Merged stack** (`docker/kaban-stack.yml`)
+- Uses Compose v2.20+ `include:` to layer the upstream Supabase compose
+  on top of our `docker-compose.yml`. Bind mounts inside upstream's
+  compose (`./volumes/...`) still resolve correctly because `include:`
+  evaluates relative paths against the included file's own directory.
+- A tiny `services.web` override block adds `depends_on: kong
+  (condition: service_healthy)` and rewires
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+  `SUPABASE_SERVICE_ROLE_KEY` to the upstream-managed secrets
+  (`ANON_KEY`, `SERVICE_ROLE_KEY`).
+
+**First-boot migrations** (`docker/bootstrap.sh`)
+- Polls `docker compose ps` for the `db` service's `Health` column;
+  retries up to 60 × 2 s before giving up.
+- Once healthy, `psql -v ON_ERROR_STOP=1`s every file in
+  `supabase/migrations/` in order. Each migration is already idempotent
+  (`if not exists` / `or replace`), so re-application under `--force`
+  is safe.
+- `.bootstrap-done` marker prevents accidental re-runs.
+
+**`curl | sh` installer** (`scripts/install-kaban.sh`)
+- Nine-step flow: prereq check → checkout (clone or `git pull`) → DNS
+  pre-flight (`getent`/`dig` vs `ifconfig.me`/`ipify`, skipped for
+  `localhost`) → `.env` generation with fresh random
+  `POSTGRES_PASSWORD` / `JWT_SECRET` / `DASHBOARD_PASSWORD` and JWTs
+  signed against that secret inside a throwaway `python:3.12-alpine`
+  container → `supabase/fetch.sh` → `docker compose pull` →
+  `docker compose up -d --build` → `bootstrap.sh` → final URL banner.
+- Re-runnable on the same host as the upgrade path: existing
+  `docker/.env` is preserved, fetch is a no-op on PIN match, and
+  bootstrap is gated by its marker.
+- Compose v2.20+ check is a soft warning — older Compose silently
+  ignores `include:` and would start only kaban-web + caddy.
+
+**Expanded env example** (`docker/.env.example`)
+- Now includes every variable the upstream Supabase compose reads:
+  `POSTGRES_*`, `ANON_KEY`, `SERVICE_ROLE_KEY`, `JWT_SECRET`,
+  `DASHBOARD_*`, `KONG_*`, GoTrue / SMTP / Studio / Functions /
+  Analytics. The installer writes `docker/.env` from this template; the
+  file documents every knob for the by-hand path.
+
+**Docs**
+- `docs/SELF_HOSTING.md` — TL;DR now leads with the `curl | sh`
+  one-liner; "Path B" rewritten to use the merged stack;
+  Phase-7-follow-ups list trimmed.
+- `docs/ROADMAP.md` — current-phase paragraph rewritten; Phase 7
+  `kaban-stack.yml` + `curl | sh installer` boxes ticked; remaining
+  follow-ups (fresh-VPS dry run, first-run wizard) left open.
+- `docs/DECISIONS/0015-self-host-one-liner.md` — new (pinning strategy,
+  `include:`-based merge, containerised JWT signing, alternatives).
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (105 files, biome clean)
+- `pnpm typecheck` ✅ (5 packages, FULL TURBO on the second run)
+- `pnpm test` ✅ — 29 tests pass (26 `@kpu/core` + 3 `@kpu/web` a11y)
+- `pnpm build` ✅ — bundles preserved (`/b/[id]/c/[cardId]` 161 kB,
+  `/sign-in` 116 kB, `/b/[id]` 197 kB; baseline was 196 — within 1 kB
+  of the budget)
+- Supabase MCP — `list_migrations` 6/6, `list_tables` 10/10 with RLS
+  enabled on each.
+- `bash -n` clean on `fetch.sh`, `bootstrap.sh`, `install-kaban.sh`.
+- `fetch.sh` exercised end-to-end against the GitHub tarball in a
+  scratch dir — unpacks `docker-compose.yml`, `volumes/`, etc., and
+  writes the `.fetched-ref` marker correctly.
+
+### Decisions taken this session
+
+- ADR 0015 — pin upstream Supabase as `PIN` + `fetch.sh` (not a
+  submodule, not vendored); merge via Compose `include:`; sign JWTs
+  inside a throwaway `python:3.12-alpine` container so the installer
+  has zero extra language deps.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **End-to-end fresh-VPS dry run** of `install-kaban.sh` against a
+   real Docker host — still blocked on environment.
+2. **End-to-end smoke against the connected Supabase** (magic-link
+   sign-in via the Supabase auth admin API; needs
+   `SUPABASE_SERVICE_ROLE_KEY` from the operator).
+3. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification** — same
+   blocker as #2.
+4. **First-run admin wizard** for the bundled stack (Phase 7 final
+   follow-up).
+
+### Blockers / open questions
+
+- **`SUPABASE_SERVICE_ROLE_KEY`** — still not in `.env.local`. The MCP
+  only exposes publishable keys; operator must drop it in for invite,
+  audit-events, and the auth admin API.
+- **SMTP / Google OAuth** — still unprovided.
+- **Docker daemon** — none in this harness, so the merged compose, the
+  installer, and `bootstrap.sh` are bash-syntax + tarball-fetch
+  verified but not exercised end-to-end. A fresh-VPS pass is the next
+  Phase-7 checkbox.
+- **Native iOS/Android** — still deferred to a dev machine.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-13 — Supabase MCP wire-up, sheet drag-dismiss, Phase 7 self-host kickoff
 
 - **Agent / model**: Claude (Opus 4.7)

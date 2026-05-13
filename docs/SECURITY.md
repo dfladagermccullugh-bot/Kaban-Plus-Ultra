@@ -80,6 +80,28 @@ Permissions-Policy: camera=(), microphone=(), geolocation=()
 - Supabase logs retained 7 days (Cloud Free) or 30 days (Pro) — fine for v1.
 - Never log a card body. Bodies can contain anything.
 
+### `profiles.email` (PII)
+
+Migration `0006_profiles_email.sql` pins each signed-up user's email on
+their `profiles` row so the invite flow can resolve an existing user
+without paging `auth.admin.listUsers`. Treat this column as PII:
+
+- **No public RLS read path.** `profiles` has a select policy that only
+  exposes a row to its owner (`auth.uid() = id`). One user cannot read
+  another user's email row.
+- **Only consumer**: the `inviteCollaborator` server action in
+  `apps/web/app/(app)/b/[id]/settings-actions.ts`, which uses the
+  service-role `createAdmin()` client to look up
+  `profiles.id where email = ?`. It returns only the `id`; the email
+  itself never crosses back to the browser.
+- **Population path**: the `on_auth_user_created` and
+  `on_auth_user_email_updated` triggers (both `security definer`,
+  `set search_path = public, auth`) write the column. No client- or
+  server-action code ever writes `profiles.email` directly.
+- **If you add another reader**, document it here and ensure it
+  remains server-side + service-role. Do not surface email on any
+  client-rendered page or in any anon-key query.
+
 ## Dependencies
 
 - `pnpm audit --prod` runs in CI; high-severity advisories fail the build.

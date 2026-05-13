@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@kpu/ui';
-import { Check, ImageOff, Loader2, Tag, X } from 'lucide-react';
+import { Camera, Check, ImageOff, Loader2, Tag, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -106,6 +106,7 @@ export function CardEditorModal({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef(card.body_md);
+  const insertImageRef = useRef<((file: File) => Promise<void>) | null>(null);
 
   const scheduleBodySave = useCallback(
     (next: string) => {
@@ -329,6 +330,20 @@ export function CardEditorModal({
               onChange={handleSetCover}
             />
 
+            <AddPhotoButton
+              disabled={uploadStatus.state === 'uploading'}
+              onPick={async (file) => {
+                const insert = insertImageRef.current;
+                if (insert) {
+                  await insert(file);
+                } else {
+                  // Fallback: editor not mounted yet — just upload so the
+                  // image lands in the gallery and can be set as cover.
+                  await handleImageUpload(file);
+                }
+              }}
+            />
+
             <div className="ml-auto flex items-center gap-2 text-xs text-text-muted">
               <SaveStatus state={bodySave} />
             </div>
@@ -339,6 +354,9 @@ export function CardEditorModal({
             <TiptapEditor
               initialMarkdown={card.body_md}
               onChangeMarkdown={scheduleBodySave}
+              registerInsertImage={(fn) => {
+                insertImageRef.current = fn;
+              }}
               onImageDropped={async (file) => {
                 const r = await handleImageUpload(file);
                 if (!r) return null;
@@ -395,6 +413,37 @@ function SaveStatus({ state }: { state: SaveState }) {
     return <span className="text-danger">Save failed</span>;
   }
   return null;
+}
+
+function AddPhotoButton({
+  disabled,
+  onPick,
+}: {
+  disabled?: boolean;
+  onPick: (file: File) => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={disabled || busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const { pickPhoto } = await import('@/lib/camera');
+          const file = await pickPhoto('prompt');
+          if (file) await onPick(file);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-bg px-2 text-xs text-text-muted hover:bg-surface hover:text-text disabled:opacity-50"
+      title="Add a photo (camera on mobile, file picker on web)"
+    >
+      <Camera size={14} strokeWidth={1.5} aria-hidden />
+      Photo
+    </button>
+  );
 }
 
 function CoverImagePicker({

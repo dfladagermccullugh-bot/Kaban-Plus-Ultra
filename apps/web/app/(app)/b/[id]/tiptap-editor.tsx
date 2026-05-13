@@ -15,9 +15,20 @@ type Props = {
    * the URL to embed, or `null` if the upload failed.
    */
   onImageDropped?: (file: File) => Promise<string | null>;
+  /**
+   * Registers an imperative `insert(file)` handle with the parent so it can
+   * push an image into the document from outside (e.g. a "Photo" button).
+   * The registered function reuses the same `onImageDropped` upload path.
+   */
+  registerInsertImage?: (fn: ((file: File) => Promise<void>) | null) => void;
 };
 
-export function TiptapEditor({ initialMarkdown, onChangeMarkdown, onImageDropped }: Props) {
+export function TiptapEditor({
+  initialMarkdown,
+  onChangeMarkdown,
+  onImageDropped,
+  registerInsertImage,
+}: Props) {
   const onImageDroppedRef = useRef(onImageDropped);
   onImageDroppedRef.current = onImageDropped;
 
@@ -71,6 +82,22 @@ export function TiptapEditor({ initialMarkdown, onChangeMarkdown, onImageDropped
     if (!url || !editor) return;
     editor.chain().focus().setImage({ src: url, alt: file.name }).run();
   }
+
+  // Expose the file → upload → insert flow to the parent so an external
+  // button (e.g. the "Photo" toolbar button) can insert an image without
+  // going through a drop/paste event. Inlined here so biome's exhaustive-
+  // deps rule sees a stable, self-contained closure.
+  useEffect(() => {
+    if (!registerInsertImage) return;
+    if (!editor) return;
+    const insert = async (file: File) => {
+      const url = await onImageDroppedRef.current?.(file);
+      if (!url) return;
+      editor.chain().focus().setImage({ src: url, alt: file.name }).run();
+    };
+    registerInsertImage(insert);
+    return () => registerInsertImage(null);
+  }, [editor, registerInsertImage]);
 
   // Reset content when switching cards.
   useEffect(() => {

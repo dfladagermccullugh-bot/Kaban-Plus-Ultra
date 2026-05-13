@@ -4,6 +4,154 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 5 closeout (camera plugin) + Phase 6 kickoff (Markdown ZIP export)
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kanban-phase-5-dev-bJXbA` (session-assigned;
+  stacks on `f9c056c` — `main` after PRs #13 and #14 merged the
+  previous Phase 4/5 transition work)
+- **Phase**: 5 → 6 transition
+
+### Goal
+Close the last open Phase 5 functional box (camera plugin for card
+image capture) and open Phase 6 with the markdown export route +
+header button so any signed-in collaborator can pull a `.zip` of their
+board.
+
+### Changed
+
+**Camera plugin** (`apps/web/lib/camera.ts` — new)
+- `pickPhoto(source = 'prompt')` → `Promise<File | null>`.
+- Native (`Capacitor.isNativePlatform()`): dynamic-imports
+  `@capacitor/camera`, calls `Camera.getPhoto({ resultType: DataUrl,
+  source: Prompt })`, decodes the data URL via `fetch().blob()`, and
+  wraps the result in a synthetic `File` so the rest of the pipeline
+  is platform-agnostic. Treats the cancel exception as a clean
+  resolve-to-null.
+- Web fallback: appends a hidden `<input type="file"
+  accept="image/*" capture="environment">` to `document.body`,
+  programmatically clicks it, and resolves on `change` (or on the
+  next window focus with no file, to detect cancel).
+- `apps/web/app/(app)/b/[id]/card-editor-modal.tsx` — new
+  `<AddPhotoButton>` next to the existing Cover button, calls
+  `pickPhoto` and forwards the file to the editor via a new
+  `insertImageRef.current` stash.
+- `apps/web/app/(app)/b/[id]/tiptap-editor.tsx` — adds
+  `registerInsertImage` prop. The parent stashes the imperative
+  `insert(file)` callback so external buttons can drive the editor
+  without lifting tiptap state up. Same `onImageDropped` upload path is
+  reused.
+- `apps/web/package.json` — `+ @capacitor/camera 6.1.2`.
+- `apps/mobile/package.json` — `+ @capacitor/camera 6.1.2` so
+  `cap sync` ships the native plugin once the platforms are added.
+
+**Markdown ZIP export** (`apps/web/app/(app)/b/[id]/export/route.ts` — new)
+- `GET /b/[id]/export` route handler. Runs as the signed-in user; RLS
+  gates the data fetch. Returns
+  `Content-Type: application/zip`, `Content-Disposition: attachment;
+  filename="<board-slug>.zip"`.
+- Layout: top-level `README.md` (rows × columns matrix), then one
+  folder per row (slugified, deduped per board), one `.md` per card
+  (slugified, deduped per row). Empty rows get a `.gitkeep` so they
+  still appear in the archive.
+- YAML frontmatter per card: title, id, row, column, labels (array),
+  cover (storage path or `null`). Body is `cards.body_md` verbatim —
+  the canonical format per golden rule #5.
+- `jszip@3.10.1` in-memory; compression `DEFLATE`. Lazy-imported so
+  the route handler stays at 135 B build-time.
+- `apps/web/app/(app)/b/[id]/export-button.tsx` — new client component
+  in the board header (left of the settings gear). `fetch + blob URL`
+  download so the user sees a spinner during the zip build and errors
+  can be surfaced inline. Available to viewer+; owner-only stuff stays
+  in `<BoardSettings>`.
+- `apps/web/app/(app)/b/[id]/page.tsx` — wires `<ExportButton>` into
+  the header.
+- `apps/web/package.json` — `+ jszip 3.10.1`.
+
+**Docs**
+- `apps/mobile/README.md` — top-of-file checklist for the first
+  developer with Xcode / Android Studio: `cap add ios`, `cap add
+  android`, `@capacitor/assets generate`, `cap sync`, plus the iOS
+  `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription` keys
+  the Camera plugin needs.
+- `docs/SECURITY.md` — new "`profiles.email` (PII)" subsection under
+  Logging & PII; documents that no public RLS read path exposes it,
+  the only consumer is the invite server action via service-role, and
+  the trigger-driven write path. Reader-of-the-future guidance: any
+  new consumer stays server-side + service-role.
+- `docs/ROADMAP.md` — Phase 5 camera box ticked; Phase 6 board → zip
+  box ticked. Status line updated to reflect the Phase 5 → 6
+  transition.
+- `docs/DECISIONS/0009-camera-plugin-and-markdown-export.md` —
+  added.
+
+### Verified
+- `pnpm install --frozen-lockfile` ✅ (baseline)
+- `pnpm install` ✅ (after `+ @capacitor/camera`, `+ jszip`)
+- `pnpm lint` ✅ (92 files; biome auto-fixed import sort + format on
+  the new files)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ (13 tests in `@kpu/core`; no new tests this session)
+- `pnpm build` ✅
+  - `/b/[id]` 139 B / **195 kB** First Load JS (unchanged — camera
+    plugin is dynamic-imported, only loaded when the user taps Photo)
+  - `/b/[id]/(.)c/[cardId]` + direct route unchanged at **263 kB**
+  - `/b/[id]/export` 135 B / **103 kB** First Load JS (new; jszip is
+    dynamic-imported inside the route handler)
+  - `/s/[id]` unchanged at 106 kB
+  - `/boards` page JS reports 5.73 kB (Next 15 caching artifact; the
+    file wasn't modified this session)
+
+### ADRs added
+- `docs/DECISIONS/0009-camera-plugin-and-markdown-export.md`
+
+### Delegations
+None.
+
+### Decisions taken this session (small, noted inline)
+- **Synthetic `File` from camera data URL** instead of a base64 string
+  passthrough — keeps `uploadCardImage(file, …)` the single image-
+  upload entry point. The fake filename (`capture-<ms>.<ext>`) flows
+  through tiptap's `alt` attribute.
+- **Slug regex uses `\p{M}` with the `u` flag** to strip combining
+  marks. Biome flagged the literal `[̀-ͯ]` class as misleading; the
+  Unicode property is the correct fix.
+- **YAML 1.2 always-double-quoted strings** for frontmatter. Lets the
+  emitter sidestep block / folded / unquoted style rules entirely.
+- **Route handler over server action** for the export. Server actions
+  return JSON; `GET` with `Content-Disposition` is the binary-file
+  shape.
+
+### Next up
+1. **Drag-drop import**: counterpart to the export. Accept either a
+   single `.zip` (parse with jszip) or a folder of `.md` files (use
+   the File System Access API on web; on mobile the Capacitor
+   Filesystem plugin if needed). Round-trip should reconstruct row /
+   column / labels / cover from the frontmatter.
+2. **Native projects (still deferred)**: `cd apps/mobile && npx cap
+   add ios && npx cap add android && npx cap sync` on a dev machine
+   with Xcode + Android Studio. After adding, drop in
+   `assets/icon.png` + `assets/splash.png` and run
+   `npx @capacitor/assets generate`. Commit the generated folders.
+3. **iOS Info.plist**: add the two `NSCameraUsageDescription` /
+   `NSPhotoLibraryUsageDescription` keys listed in
+   `apps/mobile/README.md` after `cap add ios`.
+4. **Phase 6 polish**: page transitions (motion-safe), modal sheets
+   on mobile (`/b/[id]/(.)c/[cardId]` → bottom-sheet on `coarse`
+   pointer), reduced-motion QA, axe-core CI, Lighthouse a11y ≥ 95
+   and perf ≥ 90.
+
+### Blockers / open questions
+- **Supabase provisioning** still local-only. Migrations 0001 → 0006
+  must all be applied. Invite-by-email also needs
+  `SUPABASE_SERVICE_ROLE_KEY` + SMTP (or local supabase + inbucket).
+- **Native shell**: still cannot be generated in this harness (no
+  Xcode / Android Studio). Listed as the second next-up item; iOS
+  Info.plist edits queued behind it.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-13 — Phase 4 closeout (audit writer + invite hardening) + Phase 5 kickoff (Capacitor shell, haptics, pull-to-refresh)
 
 - **Agent / model**: Claude (Opus 4.7)

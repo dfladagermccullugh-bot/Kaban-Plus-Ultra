@@ -37,6 +37,7 @@ services:
       NEXT_PUBLIC_SUPABASE_URL:  ${NEXT_PUBLIC_SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SETUP_TOKEN:               ${SETUP_TOKEN:-}
       # Internal URL used by server-side @supabase/ssr clients; keeps the
       # auth/realtime/rest hops on the docker network instead of hairpinning
       # out through caddy.

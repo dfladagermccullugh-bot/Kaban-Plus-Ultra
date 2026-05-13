@@ -4,6 +4,152 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-13 — Phase 7: first-run admin wizard (`/setup`) for the bundled stack
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-plus-ultra-dev-ufORp` (session-assigned;
+  stacks on `main` at `e0a9548` — merge of PR #21 from the previous
+  session's Phase 7 main branch)
+- **Phase**: 7 (closing the last open checkbox)
+
+### Goal
+
+Land the first-run admin wizard — a `/setup` route gated by `SETUP_TOKEN`
+that lets the initial operator claim the workspace owner role while
+`profiles` is empty, completing Phase 7's last open checkbox.
+
+### Changed
+
+**`.env.local` regeneration** (`apps/web/.env.local` — local-only,
+gitignored)
+- Rewritten from the MCP connector at session start: URL + legacy anon
+  JWT for project ref `xqdhpxfgrckjzzbenivp`. This session the operator
+  also handed over `SUPABASE_SERVICE_ROLE_KEY`, so the file now carries
+  the service-role JWT (needed by the wizard's `auth.admin.createUser`
+  + `generateLink` calls). Added a `SETUP_TOKEN=dev-setup-token-change-me`
+  placeholder so the wizard is reachable in `pnpm dev`.
+
+**`/setup` route — the wizard itself**
+- `apps/web/app/setup/setup-state.ts` — pure module (no `server-only`)
+  exporting `SetupGate` type + `checkSetupToken()` with a constant-time
+  comparison against `process.env.SETUP_TOKEN`. Empty / missing /
+  mismatched / length-mismatched tokens all return
+  `{ ok: false, reason: 'no-token' | 'bad-token' }`. Split from the
+  admin-dependent half so unit tests don't have to stub a service-role
+  client.
+- `apps/web/app/setup/setup-gate.server.ts` — `'server-only'` wrapper
+  that adds `isWorkspaceEmpty()` (counts `profiles` via the service-role
+  client) and a `setupGate()` that combines both checks.
+- `apps/web/app/setup/page.tsx` — server component that runs the gate.
+  Any failure except `already-claimed` `notFound()`s so a 404 hides the
+  route's existence; `already-claimed` renders a friendly "Setup is
+  complete" page.
+- `apps/web/app/setup/setup-form.tsx` — client form. Email +
+  display name + accent color (the existing `ACCENT_COLORS` palette,
+  reused from `/profile` for visual consistency) + optional avatar
+  upload. Success state surfaces the magic-link inline.
+- `apps/web/app/setup/actions.ts` — `'use server'` action that
+  re-validates the gate, calls `auth.admin.createUser({
+  email_confirm: true, user_metadata: { full_name } })`, patches the
+  trigger-seeded profile with the operator's choices, optionally
+  uploads `<userId>/avatar.<ext>` to the `avatars` bucket via service
+  role (2 MB cap, PNG/JPEG/WebP only), and best-effort generates a
+  magic-link via `auth.admin.generateLink`. Returns the link for inline
+  display so the wizard works without SMTP.
+
+**Wiring**
+- `apps/web/lib/supabase/middleware.ts` — `/setup` added to
+  `PUBLIC_PATHS` so the auth redirect doesn't bounce an unauthed
+  operator off the wizard.
+- `docker/docker-compose.yml` + `docker/kaban-stack.yml` — `web`
+  service now reads `SETUP_TOKEN` (with `${SETUP_TOKEN:-}` so an empty
+  value is fine on the hosted-Supabase path).
+- `docker/.env.example` + root `.env.example` — `SETUP_TOKEN` block
+  documented.
+- `scripts/install-kaban.sh` — generates a fresh 32-char `SETUP_TOKEN`
+  via `rand_b64 32`, threads it through the containerised JWT-signing
+  Python step, patches it into `docker/.env`, and prints
+  `$PUBLIC_URL/setup?t=$SETUP_TOKEN_VAL` in the final install banner
+  next to the existing Studio link. Re-running the installer on an
+  existing host preserves the token (the env-file write is gated by
+  "first run only").
+
+**Tests**
+- `apps/web/tests/setup-gate.test.ts` — five vitest cases against
+  `checkSetupToken`: empty env disables, missing arg fails, mismatched
+  arg fails, length-mismatch fails (so the constant-time compare's
+  length short-circuit doesn't accidentally pass), exact match succeeds.
+  Uses `vi.stubEnv` / `vi.unstubAllEnvs` so the suite never mutates
+  `process.env` across tests.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 7's "First-run wizard" checkbox ticked.
+- `docs/SELF_HOSTING.md` — TL;DR now mentions the one-time `/setup?t=`
+  URL the installer prints; new "First-run wizard" section documents
+  how to re-bootstrap (delete from `auth.users`); "Phase 7 follow-ups"
+  trimmed.
+- `docs/DECISIONS/0016-first-run-setup-wizard.md` — new ADR (gate
+  design, alternatives considered, consequences).
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (111 files, biome clean)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ — **34 tests pass** (26 `@kpu/core` + 8 `@kpu/web`:
+  3 a11y + 5 new setup-gate)
+- `pnpm build` ✅ — bundles preserved (`/b/[id]/c/[cardId]` 161 kB,
+  `/sign-in` 116 kB, `/b/[id]` 196 kB). New `/setup` lands at 116 kB
+  First Load — same shape as `/sign-in`, which is the right neighbor.
+- Supabase MCP — `list_migrations` 6/6, no new migrations needed for
+  the wizard (it uses the existing signup trigger).
+- `bash -n` clean on the updated `install-kaban.sh`.
+
+### Decisions taken this session
+
+- **ADR 0016** — gate `/setup` on `SETUP_TOKEN` + empty-`profiles`
+  (belt-and-suspenders), inline the magic-link in the success page so
+  SMTP is optional, surface the URL from the installer banner.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **End-to-end fresh-VPS dry run** of `install-kaban.sh` — still
+   blocked on a real Docker host. The wizard is now part of that flow:
+   the dry run should cover (install → claim owner via `/setup?t=` →
+   sign in via the inline magic-link → drag a card).
+2. **End-to-end smoke against the connected Supabase** — boot
+   `pnpm dev`, exercise `/setup?t=dev-setup-token-change-me` against
+   the empty-`profiles` MCP project (deferred this session — operator
+   not exercising flows in the harness).
+3. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification** on `/`,
+   `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`.
+4. **Phase 7 polish** — ARM64 multi-arch build for `docker/Dockerfile.web`,
+   healthchecked Postgres backup side-car.
+
+### Blockers / open questions
+
+- **No Docker host in the harness** — the wizard env wiring through
+  the compose files + installer is bash-syntax verified but not run
+  end-to-end. A real fresh-VPS dry run is the same blocker as last
+  session.
+- **No browser in the harness** — the `/setup` form's a11y is
+  axe-clean by construction (it's the same primitives as `/profile`
+  + `/sign-in`, both of which already pass), but a live Lighthouse
+  pass is still deferred.
+- **SMTP / Google OAuth** still unprovided. The wizard sidesteps SMTP
+  for first-run by surfacing the magic-link inline; subsequent
+  sign-ins still need a working email path.
+- **Native iOS/Android** — still deferred to a dev machine.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+- **PR #21 (Phase 7 main)** is merged to `main` at `e0a9548`. This
+  session's branch stacks cleanly on top.
+
+---
+
 ## 2026-05-13 — Phase 7 main: pinned Supabase upstream + merged stack + `curl|sh` installer
 
 - **Agent / model**: Claude (Opus 4.7)

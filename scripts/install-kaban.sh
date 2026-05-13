@@ -120,6 +120,7 @@ if [ ! -f "$ENV_FILE" ]; then
   POSTGRES_PASSWORD="$(rand_b64 32)"
   JWT_SECRET="$(rand_b64 48)"
   DASHBOARD_PASSWORD="$(rand_b64 24)"
+  SETUP_TOKEN="$(rand_b64 32)"
 
   # Sign anon + service_role JWTs from JWT_SECRET, then patch every relevant
   # placeholder in $ENV_FILE. All of this runs inside a single throwaway
@@ -130,6 +131,7 @@ if [ ! -f "$ENV_FILE" ]; then
     -e JWT_SECRET="$JWT_SECRET" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e DASHBOARD_PASSWORD="$DASHBOARD_PASSWORD" \
+    -e SETUP_TOKEN="$SETUP_TOKEN" \
     -e KABAN_HOST="$KABAN_HOST" \
     -v "$ENV_FILE:/env:rw" \
     python:3.12-alpine python - <<'PY'
@@ -163,6 +165,7 @@ patches = {
     "NEXT_PUBLIC_SUPABASE_URL":     public_url,
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": anon,
     "SUPABASE_SERVICE_ROLE_KEY":    service,
+    "SETUP_TOKEN":                  os.environ["SETUP_TOKEN"],
 }
 
 path = pathlib.Path("/env")
@@ -182,7 +185,7 @@ for k, v in patches.items():
 path.write_text("\n".join(out) + "\n")
 PY
 
-  log "  POSTGRES_PASSWORD / JWT_SECRET / DASHBOARD_PASSWORD generated. Back up $ENV_FILE."
+  log "  POSTGRES_PASSWORD / JWT_SECRET / DASHBOARD_PASSWORD / SETUP_TOKEN generated. Back up $ENV_FILE."
 else
   log "$ENV_FILE already exists — keeping it as-is."
 fi
@@ -206,9 +209,17 @@ COMPOSE_FILE="$KABAN_DIR/docker/kaban-stack.yml" \
   bash "$KABAN_DIR/docker/bootstrap.sh"
 
 # ---------- 9. done ----------
+PUBLIC_URL=$(grep ^NEXT_PUBLIC_SITE_URL= "$ENV_FILE" | cut -d= -f2-)
+SETUP_TOKEN_VAL=$(grep ^SETUP_TOKEN= "$ENV_FILE" | cut -d= -f2-)
+DASH_USER=$(grep ^DASHBOARD_USERNAME= "$ENV_FILE" | cut -d= -f2-)
+
 log "──────────────────────────────────────────────────────────────"
-log "  Kaban Plus Ultra is up at: https://$KABAN_HOST/"
-log "  Supabase Studio: https://$KABAN_HOST/project/default (user: $(grep ^DASHBOARD_USERNAME= "$ENV_FILE" | cut -d= -f2))"
+log "  Kaban Plus Ultra is up at: $PUBLIC_URL/"
+log "  Supabase Studio:           $PUBLIC_URL/project/default (user: $DASH_USER)"
+log ""
+log "  First-run wizard (one-time — visit from a private window):"
+log "    $PUBLIC_URL/setup?t=$SETUP_TOKEN_VAL"
+log "  The wizard disables itself once you've claimed the owner account."
 log ""
 log "  Logs:     cd $KABAN_DIR/docker && docker compose -f kaban-stack.yml logs -f"
 log "  Update:   cd $KABAN_DIR && ./scripts/install-kaban.sh"

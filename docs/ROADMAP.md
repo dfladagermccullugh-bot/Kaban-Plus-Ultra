@@ -110,7 +110,7 @@ Goal: one command spins up a private instance.
 - [ ] End-to-end fresh-VPS dry run (needs a Docker host outside the harness)
 - [x] Single `kaban-stack.yml` that bundles upstream Supabase pinned to a known-good tag (`docker/supabase/PIN` at `v1.24.09`; `docker/supabase/fetch.sh` unpacks it; `docker/kaban-stack.yml` merges via `include:`)
 - [x] One-liner installer (`curl ... | sh`) with DNS pre-flight + first-boot migrations (`scripts/install-kaban.sh` + `docker/bootstrap.sh`)
-- [ ] First-run wizard for the initial admin account
+- [x] First-run wizard for the initial admin account (`/setup` gated by `SETUP_TOKEN`; installer generates the token + prints the URL)
 
 ## Phase 8 — Store submission (human-driven)
 

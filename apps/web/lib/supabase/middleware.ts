@@ -2,7 +2,7 @@ import type { Database } from '@kpu/db';
 import { createServerClient } from '@supabase/ssr';
 import { type NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/', '/sign-in', '/auth/callback', '/sign-out'];
+const PUBLIC_PATHS = ['/', '/sign-in', '/auth/callback', '/sign-out', '/setup'];
 
 function isPublic(pathname: string): boolean {
   return (

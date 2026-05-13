@@ -34,7 +34,10 @@ cd docker && docker compose up -d --build
 ```
 
 Caddy provisions a Let's Encrypt cert for `$KABAN_HOST` automatically.
-Browse to `https://$KABAN_HOST/` and sign in with a magic link.
+Once the stack is up, the installer prints a one-time
+`https://$KABAN_HOST/setup?t=<token>` URL — open it in a private window
+to claim the workspace owner account. After that, sign in normally with
+a magic link.
 
 ## Prereqs
 
@@ -170,11 +173,43 @@ any new files in `supabase/migrations/`.
 - **Storage** — the `card-images` and `exports` buckets live in Supabase
   Storage; the same backup story applies.
 
+## First-run wizard
+
+A fresh `install-kaban.sh` deploy starts with an empty `profiles` table
+and no way to sign up — sign-ups create profiles via the trigger but
+require an SMTP server to receive the magic link. To bootstrap the
+first account, the installer prints a one-time URL:
+
+```
+https://$KABAN_HOST/setup?t=<SETUP_TOKEN>
+```
+
+`SETUP_TOKEN` is a 32-char random string written into `docker/.env` at
+install time and never reused. The `/setup` route is **only** reachable
+when (a) the request supplies a matching `?t=`, AND (b) the `profiles`
+table is empty. Any other request 404s, so the URL is safe to log.
+
+The wizard collects email + display name + accent color + optional
+avatar, then uses the Supabase auth admin API to create the user with
+`email_confirm: true` and surfaces a single-use magic-link inline (SMTP
+isn't required for first-run). Once a profile exists, `/setup`
+self-disables — the next visit lands on a "Setup is complete" page.
+
+To re-run the wizard (e.g. fresh start after accidentally claiming the
+wrong email), delete the user out of band:
+
+```sh
+docker compose -f kaban-stack.yml exec db psql -U postgres -c \
+  "delete from auth.users where email = 'wrong@example.com';"
+```
+
+The trigger cascades the delete to `profiles` and the user's demo
+board. Then visit `/setup?t=<token>` again.
+
 ## Phase 7 follow-ups (not yet shipped)
 
 - End-to-end fresh-VPS dry run of `install-kaban.sh` (needs a Docker
   host outside this harness).
-- First-run wizard for the initial admin account.
 - Healthchecked Postgres backups baked in.
 - Optional Sentry / Plausible side-cars.
 - ARM64 multi-arch image for Raspberry-Pi-class hosts.

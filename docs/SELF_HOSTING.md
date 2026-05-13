@@ -11,6 +11,23 @@ later in Phase 7.
 
 ## TL;DR
 
+The fully-bundled, one-liner path (recommended):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dfladagermccullugh-bot/kaban-plus-ultra/main/scripts/install-kaban.sh \
+  | KABAN_HOST=kaban.example.com sh
+```
+
+That script clones the repo into `~/kaban-plus-ultra`, runs a DNS
+pre-flight against `$KABAN_HOST`, generates `docker/.env` with fresh
+random secrets + signed JWTs, fetches the upstream Supabase compose at
+the pinned tag (`docker/supabase/PIN` — currently `v1.24.09`), pulls
+every image, brings up the merged stack, and applies
+`supabase/migrations/*.sql` once Postgres is healthy. Re-running the
+script on the same host is the upgrade path.
+
+The hand-rolled path (also supported):
+
 ```sh
 cp docker/.env.example docker/.env       # then edit
 cd docker && docker compose up -d --build
@@ -33,9 +50,18 @@ Browse to `https://$KABAN_HOST/` and sign in with a magic link.
 ```
 docker/
 ├── Dockerfile.web         # multi-stage Next.js standalone build
-├── docker-compose.yml     # web + caddy (supabase optional/external)
+├── docker-compose.yml     # kaban-web + caddy (hosted-Supabase path)
+├── kaban-stack.yml        # ^^ merged with upstream Supabase (full self-host)
+├── bootstrap.sh           # waits for Postgres, applies migrations via psql
 ├── Caddyfile              # TLS + reverse proxy config
-└── .env.example           # all envs you'll need
+├── .env.example           # all envs you'll need
+└── supabase/
+    ├── PIN                # pinned upstream tag (currently v1.24.09)
+    ├── fetch.sh           # downloads supabase/supabase@$PIN docker/ subtree
+    ├── README.md
+    └── upstream/          # gitignored; populated by fetch.sh
+scripts/
+└── install-kaban.sh       # the curl | sh one-liner installer
 ```
 
 ## Provisioning Supabase
@@ -59,31 +85,41 @@ Pick **one** of the two paths.
    …or run each `supabase/migrations/00*.sql` via `psql` against the
    project's connection pooler.
 
-### Path B — Self-hosted Supabase
+### Path B — Self-hosted Supabase (merged stack)
 
-1. Clone the upstream compose alongside ours:
+This is the path the `install-kaban.sh` one-liner takes. By hand:
+
+1. Pin + fetch the upstream Supabase compose. We pin to
+   [`docker/supabase/PIN`](../docker/supabase/PIN) (currently
+   `v1.24.09`):
    ```sh
-   git clone --depth 1 https://github.com/supabase/supabase.git supabase-stack
+   ./docker/supabase/fetch.sh                     # populates docker/supabase/upstream/
    ```
-2. Follow the Supabase self-host quickstart to set its `JWT_SECRET`,
-   `POSTGRES_PASSWORD`, `ANON_KEY`, `SERVICE_ROLE_KEY`, etc. — both in
-   `supabase-stack/docker/.env` and (matching) in `docker/.env`. Use
-   that stack's gateway URL as `NEXT_PUBLIC_SUPABASE_URL` (typically
-   `http://kong:8000` when the two stacks share a Docker network, or
-   `https://supabase.your-domain.com` if you front Supabase with its own
-   Caddy block).
-3. Bring everything up:
+2. Generate `docker/.env`. Either copy `.env.example` and fill in
+   every secret by hand, or let the installer do it:
    ```sh
-   (cd supabase-stack/docker && docker compose up -d)
-   (cd docker                 && docker compose up -d --build)
+   KABAN_HOST=kaban.example.com ./scripts/install-kaban.sh
    ```
-4. Apply the KPU migrations into the self-hosted DB:
+   The installer signs anon + service-role JWTs from a fresh
+   `JWT_SECRET` so the two `eyJ...` keys in `.env` are mutually
+   consistent with the secret the Supabase containers read.
+3. Bring everything up (merged kaban-web + caddy + supabase) via
+   `kaban-stack.yml`, which uses `include:` to pull in the upstream
+   compose without forking it:
    ```sh
-   for f in supabase/migrations/*.sql; do
-     docker compose -f supabase-stack/docker/docker-compose.yml \
-       exec -T db psql -U postgres -d postgres < "$f"
-   done
+   cd docker && docker compose -f kaban-stack.yml up -d --build
    ```
+4. Apply the Kaban migrations. The `bootstrap.sh` script waits for the
+   Postgres container to report healthy, then `psql`s in every file in
+   `supabase/migrations/`:
+   ```sh
+   ./docker/bootstrap.sh                          # idempotent; --force to re-run
+   ```
+
+After first boot you can re-run `install-kaban.sh` to update — the
+script preserves `docker/.env`, re-fetches the upstream pin only on a
+PIN change, and only restarts services whose images or env actually
+changed.
 
 Either path produces the same schema: 10 public tables, 3 storage
 buckets, RLS on every public table, and the `supabase_realtime`
@@ -136,10 +172,9 @@ any new files in `supabase/migrations/`.
 
 ## Phase 7 follow-ups (not yet shipped)
 
-- Single `kaban-stack.yml` that pulls in the upstream Supabase compose
-  pinned to a known-good tag.
-- One-liner `curl ... | sh` installer that does DNS pre-flight + compose
-  pull + first-boot migrations.
+- End-to-end fresh-VPS dry run of `install-kaban.sh` (needs a Docker
+  host outside this harness).
+- First-run wizard for the initial admin account.
 - Healthchecked Postgres backups baked in.
 - Optional Sentry / Plausible side-cars.
 - ARM64 multi-arch image for Raspberry-Pi-class hosts.

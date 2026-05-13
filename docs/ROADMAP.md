@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 6 wrap + Phase 7 kickoff. Hosted Supabase project (ref `xqdhpxfgrckjzzbenivp`) is now live — migrations `0001` → `0006` applied via the Supabase MCP connector, `apps/web/.env.local` written with the project URL + anon key. The mobile bottom sheet is now drag-to-dismiss (handle-initiated `useDragControls`, threshold `offset.y > 120` or `velocity.y > 500`; reduced-motion users keep tap-to-close). Phase 7 self-host kickoff has shipped: `docker/Dockerfile.web` (multi-stage Next.js standalone), `docker/docker-compose.yml` (kaban-web + caddy; hosted-Supabase by default, upstream self-host stack layered in via second compose), `docker/Caddyfile`, `docker/.env.example`, `docs/SELF_HOSTING.md`. Still outstanding for v1: native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification, end-to-end smoke against the connected Supabase (deferred — harness has no browser to drive magic-link sign-in).
+**Current phase:** Phase 7 main work. Hosted Supabase (ref `xqdhpxfgrckjzzbenivp`) is live with all 6 migrations applied; `apps/web/.env.local` is regenerated from the MCP connector at session start. Phase 7's bundled self-host path is now real: `docker/supabase/PIN` pins the upstream `supabase/supabase` self-host stack at `v1.24.09`; `docker/supabase/fetch.sh` unpacks its `docker/` subtree (verified end-to-end against the GitHub tarball this session); `docker/kaban-stack.yml` merges kaban-web + caddy + upstream Supabase via `include:`; `docker/bootstrap.sh` waits for Postgres health and applies `supabase/migrations/*.sql` via `psql`; `scripts/install-kaban.sh` is the `curl ... | sh` one-liner with DNS pre-flight, signed-JWT generation, compose pull + up, and first-boot migrations. Still outstanding for v1: end-to-end fresh-VPS dry run of `install-kaban.sh` (needs a Docker host), first-run admin wizard, native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification, end-to-end smoke against the connected Supabase (deferred — harness has no browser to drive magic-link sign-in).
 
 ---
 
@@ -108,8 +108,8 @@ Goal: one command spins up a private instance.
 - [x] `.env.example` for self-host
 - [x] `docs/SELF_HOSTING.md` — kickoff walkthrough (hosted Supabase + self-hosted Supabase paths)
 - [ ] End-to-end fresh-VPS dry run (needs a Docker host outside the harness)
-- [ ] Single `kaban-stack.yml` that bundles upstream Supabase pinned to a known-good tag
-- [ ] One-liner installer (`curl ... | sh`) with DNS pre-flight + first-boot migrations
+- [x] Single `kaban-stack.yml` that bundles upstream Supabase pinned to a known-good tag (`docker/supabase/PIN` at `v1.24.09`; `docker/supabase/fetch.sh` unpacks it; `docker/kaban-stack.yml` merges via `include:`)
+- [x] One-liner installer (`curl ... | sh`) with DNS pre-flight + first-boot migrations (`scripts/install-kaban.sh` + `docker/bootstrap.sh`)
 - [ ] First-run wizard for the initial admin account
 
 ## Phase 8 — Store submission (human-driven)

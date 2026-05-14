@@ -4,6 +4,155 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-14 — Phase 8 prep: launch assets + staged release scripts + `/legal/privacy` + v1.0 release notes
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-phase-7-polish-bj7Lv` (session-assigned;
+  stacks on `main` at `7e6e5b5` — VISION.md tweak on top of the merge
+  of PR #23 from the previous session's polish branch)
+- **Phase**: 7 closed → Phase 8 prep (agent-tractable pieces)
+
+### Goal
+
+Land the agent-tractable Phase 8 prep work — source SVG launch assets
+wired to `@capacitor/assets`, staged TestFlight + Play Internal shell
+plumbing, a v1.0 release-notes draft, and a real `/legal/privacy` page
+stubbed from `docs/SECURITY.md` — so the next dev-machine session can
+go straight to `npx cap add` + signing.
+
+### Changed
+
+**`.env.local` regeneration** (`apps/web/.env.local` — local-only,
+gitignored)
+- Rewritten from the MCP connector at session start: URL + legacy anon
+  JWT for project ref `xqdhpxfgrckjzzbenivp` +
+  `NEXT_PUBLIC_SITE_URL=http://localhost:3000` +
+  `SETUP_TOKEN=dev-setup-token-change-me`. Service-role key not exposed
+  by MCP — left commented out with a note to ask the operator.
+
+**Launch assets** (`apps/mobile/assets/` — new dir)
+- `icon-only.svg` (1024×1024) — iOS app icon. Rounded square in the
+  brand indigo gradient (`#6B7BEE` → `#4A5BD8`, tracking the
+  design-system `--color-accent` token `oklch(60% 0.18 264)`) with a
+  2×2 grid of white card panels and the bottom-right card offset
+  upward to suggest a card mid-drag — the "real swimlanes" motif from
+  `docs/VISION.md`.
+- `icon-foreground.svg` + `icon-background.svg` — Android adaptive-icon
+  layers; foreground keeps the 2×2 grid inside the 66% safe zone,
+  background carries the gradient.
+- `splash.svg` + `splash-dark.svg` (2732×2732) — square splash for both
+  iOS and Android, centered icon on `#FCFCFD` / `#1B1D27` to match the
+  web tokens.
+- `apps/mobile/assets/README.md` — explains the layout + the
+  `pnpm generate:assets` flow.
+- `apps/mobile/package.json` — new `generate:assets` script wrapping
+  `npx --yes @capacitor/assets@3 generate` with explicit
+  `--iconBackgroundColor` / `--splashBackgroundColor` so the
+  per-platform fallback PNGs match the SVG sources. `npx --yes` rather
+  than a workspace devDep so the lockfile doesn't bump for a tool the
+  harness can't run yet (waiting on `npx cap add ios|android`).
+
+**Release plumbing** (`scripts/` — new files)
+- `scripts/release-ios.sh` — staged TestFlight pipeline: `pnpm --filter
+  @kpu/web build` → `cap sync` → `xcodebuild archive` →
+  `xcodebuild -exportArchive` → `xcrun altool --upload-app`. Gates on
+  `apps/mobile/ios/`, `APPLE_ID`, `APP_SPECIFIC_PASSWORD`, `TEAM_ID`,
+  and an `ExportOptions.plist`. Refuses to run otherwise with an
+  actionable error. `bash -n` clean.
+- `scripts/release-android.sh` — staged Play Internal pipeline: `pnpm
+  --filter @kpu/web build` → `cap sync` → `./gradlew bundleRelease` →
+  optional `fastlane supply` upload to the internal track. Gates on
+  `apps/mobile/android/`, `ANDROID_KEYSTORE*` env, and (for the upload
+  half) `PLAY_SERVICE_ACCOUNT_JSON`. Toggle the upload off with
+  `PLAY_UPLOAD=0`. `bash -n` clean.
+
+**Privacy page** (`apps/web/app/legal/privacy/page.tsx` — new route)
+- Server-rendered Next.js page; content derived from `docs/SECURITY.md`
+  (data we collect, retention, RLS-only authorization, signed share
+  links, image-upload validation). Carries a visible "stub status"
+  banner so a casual visitor doesn't mistake it for the canonical
+  version. Linked from the home-page footer (`apps/web/app/page.tsx`).
+
+**Docs**
+- `docs/RELEASE_NOTES_1.0.md` — v1.0 release-notes draft. Highlights,
+  what's-new-since-Phase-6, compatibility (web evergreen / iOS 16+ /
+  Android 8+ / Linux x86_64+ARM64), known limitations, and a pre-tag
+  checklist for the human.
+- `docs/ROADMAP.md` — Phase 8 block updated: prep checkboxes ticked
+  (assets + release scripts + release notes + privacy page); the
+  human-blocked App / Play Store rows preserved.
+- `docs/DECISIONS/0018-phase-8-prep-assets-and-release-plumbing.md` —
+  new ADR (SVG-not-PNG, `npx --yes` not workspace devDep, separate
+  iOS / Android scripts, draft privacy page now rather than late).
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (112 files, biome clean — privacy page reformatted
+  once on first write)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ — **34 tests pass** (26 `@kpu/core` + 8 `@kpu/web`:
+  3 a11y + 5 setup-gate)
+- `pnpm build` ✅ — bundles preserved: `/b/[id]/c/[cardId]` 161 kB,
+  `/sign-in` 116 kB, `/b/[id]` 196 kB, `/setup` 116 kB. New
+  `/legal/privacy` route is a server component with no client JS.
+- `bash -n` clean on `scripts/release-ios.sh` and
+  `scripts/release-android.sh`.
+- `@capacitor/assets generate` **not** exercised — needs
+  `apps/mobile/ios/` + `apps/mobile/android/` (i.e. `npx cap add` on a
+  dev machine with Xcode + Android Studio). SVGs were eyeballed via
+  the design-system color tokens; render-on-device verification is
+  blocked on the same dev-machine dependency.
+
+### Decisions taken this session
+
+- **ADR 0018** — SVG sources (not PNG) for `@capacitor/assets`;
+  `npx --yes @capacitor/assets@3` invocation rather than a workspace
+  devDep; separate `release-ios.sh` / `release-android.sh` rather than
+  a unified wrapper; ship the `/legal/privacy` route now (visible
+  draft) rather than scramble during App Store review.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **End-to-end smoke against the connected Supabase** — boot
+   `pnpm dev`, exercise `/setup?t=dev-setup-token-change-me`, magic
+   link → board → card → label → image → export + reimport. Still
+   blocked on a browser in the harness.
+2. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification** on `/`,
+   `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`, and now
+   `/legal/privacy`. Still blocked on a browser.
+3. **End-to-end fresh-VPS dry run** of `install-kaban.sh` (still
+   blocked on a Docker host outside this harness).
+4. **Dev-machine session** (first one with Xcode + Android Studio +
+   the Apple Dev / Play Console accounts): `npx cap add ios|android`,
+   then `pnpm --filter @kpu/mobile generate:assets`, then
+   `scripts/release-{ios,android}.sh` once signing material is in env.
+5. **Phase 8 listing copy** — App Store / Play Store descriptions,
+   keywords, six screenshots per device class. Agent can draft once the
+   human supplies the screenshots.
+
+### Blockers / open questions
+
+- **No native iOS / Android folders** — `apps/mobile/{ios,android}/`
+  scaffolds need `npx cap add` on a dev machine; until then,
+  `pnpm generate:assets` and both release scripts intentionally bail
+  out early.
+- **Privacy page contact addresses + operator name** are placeholders
+  (`privacy@kabanplusultra.app`, `security@kabanplusultra.app`); the
+  human needs to confirm the canonical domain and reviewer before the
+  stub banner comes off.
+- **No Docker daemon / no browser in the harness** — same recurring
+  blockers as the previous three sessions for the install-kaban dry
+  run and the Lighthouse pass.
+- **SMTP / Google OAuth** still unprovided.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-14 — Phase 7 polish: ARM64 multi-arch + healthchecked Postgres backup side-car
 
 - **Agent / model**: Claude (Opus 4.7)

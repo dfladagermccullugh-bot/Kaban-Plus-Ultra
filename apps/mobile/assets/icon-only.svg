@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Kaban Plus Ultra icon</title>
+  <!--
+    Brand: 2x2 grid of card panels — the headline "real swimlanes" feature —
+    on the indigo accent background. The bottom-right card is offset upward
+    to suggest a card mid-drag across rows. Background color tracks the
+    design-system accent token: oklch(60% 0.18 264) ≈ #5B6CE8.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6B7BEE" />
+      <stop offset="100%" stop-color="#4A5BD8" />
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="6" />
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg)" />
+
+  <!-- 2x2 grid of cards. 32px gutter inside a 720x720 area centered. -->
+  <g transform="translate(192 192)">
+    <!-- top-left -->
+    <rect x="0"   y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.95" />
+    <!-- top-right -->
+    <rect x="336" y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+    <!-- bottom-left -->
+    <rect x="0"   y="336" width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+    <!-- bottom-right (lifted, mid-drag) -->
+    <g transform="translate(0 -24)">
+      <rect x="336" y="336" width="304" height="304" rx="48" fill="#000000" opacity="0.18" filter="url(#cardShadow)" />
+      <rect x="336" y="336" width="304" height="304" rx="48" fill="#FFFFFF" />
+    </g>
+  </g>
+</svg>

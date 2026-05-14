@@ -10,6 +10,7 @@
     "build:web": "pnpm --filter @kpu/web build",
     "run:ios": "cap run ios",
     "run:android": "cap run android",
+    "generate:assets": "npx --yes @capacitor/assets@3 generate --iconBackgroundColor '#5B6CE8' --iconBackgroundColorDark '#1B1D27' --splashBackgroundColor '#FCFCFD' --splashBackgroundColorDark '#1B1D27' --assetPath assets",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

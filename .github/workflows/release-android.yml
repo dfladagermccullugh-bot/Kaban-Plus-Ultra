@@ -1,0 +1,106 @@
+name: Release Android (Play Internal)
+
+# Staged workflow shell. Wraps `scripts/release-android.sh` so a tag push
+# or manual dispatch triggers a Play Console internal-track upload. Does
+# NOT run end-to-end until:
+#   1. `apps/mobile/android/` is checked in (generated locally via
+#      `npx cap add android` on a machine with Android Studio + JDK 17).
+#   2. The repository secrets below are populated:
+#        - ANDROID_KEYSTORE_BASE64        (base64 of the release .keystore)
+#        - ANDROID_KEYSTORE_PASSWORD
+#        - ANDROID_KEY_ALIAS
+#        - ANDROID_KEY_PASSWORD
+#        - PLAY_SERVICE_ACCOUNT_JSON      (raw JSON contents; multiline)
+#
+# Until then this workflow is `workflow_dispatch`-only so it cannot run by
+# accident. Flip on `release.published` once a manual Play Internal upload
+# has succeeded at least once.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (tag, branch, or SHA) to build'
+        required: true
+        default: 'main'
+      upload:
+        description: 'Upload to Play Console (set to "0" to build the AAB only)'
+        required: false
+        default: '1'
+  # release:
+  #   types: [published]
+
+concurrency:
+  group: release-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  play-internal:
+    name: Bundle + upload to Play Internal
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: android-release
+    steps:
+      - name: Preflight — confirm native project is checked in
+        run: |
+          if [ ! -d apps/mobile/android ]; then
+            echo "::error::apps/mobile/android not found — run \`npx cap add android\` on a dev machine and commit the result before this workflow can run."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Ruby (for fastlane supply)
+        if: ${{ inputs.upload != '0' }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Install fastlane
+        if: ${{ inputs.upload != '0' }}
+        run: gem install --no-document fastlane
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize signing keystore + Play service account
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          KS_PATH="$RUNNER_TEMP/release.keystore"
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS_PATH"
+          echo "ANDROID_KEYSTORE=$KS_PATH" >> "$GITHUB_ENV"
+          if [ "${{ inputs.upload }}" != "0" ]; then
+            SA_PATH="$RUNNER_TEMP/play-service-account.json"
+            printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$SA_PATH"
+            echo "PLAY_SERVICE_ACCOUNT_JSON=$SA_PATH" >> "$GITHUB_ENV"
+          fi
+
+      - name: Bundle + upload
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_UPLOAD: ${{ inputs.upload }}
+        run: ./scripts/release-android.sh

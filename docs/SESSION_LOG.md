@@ -4,6 +4,77 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-14 — Supabase RPC grants tightened (migrations 0007 + 0008) + headless smoke script
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-phase-8-continuation-enJqD` (session-assigned; stacks on `main` at `af7e6cb` — merge of PR #26 from the previous session's `claude/phase-8-launch-prep-ud42O`)
+- **Phase**: Phase 7 hardening (security advisor pass)
+
+### Goal
+
+Run the connected Supabase project (`xqdhpxfgrckjzzbenivp`) through the security advisor and close every accidentally-exposed `SECURITY DEFINER` RPC surface that can be locked down without a schema refactor.
+
+### Changed
+
+**Supabase migrations** (applied via MCP `apply_migration`)
+- `supabase/migrations/0007_revoke_rpc_grants.sql` — revokes `EXECUTE` from `PUBLIC`, `anon`, `authenticated` on `public.on_auth_user_created()` + `public.on_auth_user_email_updated()` (trigger-only; never meant to be callable as `/rest/v1/rpc/*`), and from `PUBLIC` + `anon` on `public.rotate_share_token(uuid)` + `public.revoke_share_token(uuid)` (the explicit `authenticated` grant from migration 0005 stays).
+- `supabase/migrations/0008_restore_auth_trigger_grants.sql` — follow-up that re-grants `EXECUTE` on the two auth-trigger functions to `supabase_auth_admin`. Discovered during verification: revoking from `PUBLIC` in 0007 stripped the auth-admin role's only grant path, which would have bricked signups (`has_function_privilege('supabase_auth_admin', …)` returned `false` until the explicit grant landed).
+
+**`apps/web/.env.local`** (local-only, gitignored)
+- Rewritten from the MCP connector at session start: URL + legacy anon JWT for project ref `xqdhpxfgrckjzzbenivp` + `NEXT_PUBLIC_SITE_URL=http://localhost:3000` + `SETUP_TOKEN=dev-setup-token-change-me` + `SUPABASE_SERVICE_ROLE_KEY` (operator-pasted; not committed).
+
+**`scripts/smoke-supabase.sh`** (new file)
+- Headless probe an operator can run from a dev machine. Sources `apps/web/.env.local`, preflights the Supabase host (detects the harness's `x-deny-reason: host_not_allowed` proxy and exits 2 with a clear message rather than producing fake 403s), then probes (a) the `/setup` gate state via `Prefer: count=exact` on `/rest/v1/profiles` and (b) the four revoked anon RPCs (expected `403 permission denied for function`).
+
+**ADR**
+- `docs/DECISIONS/0020-revoke-rpc-grants-from-internal-functions.md` — new ADR. Records why `has_board_access` + `has_share_access` are deliberately left exposed (RLS policies evaluate them inline for both `anon` and `authenticated`), why the moddatetime / public-bucket-listing lints are out of scope, and the chosen revoke-vs-move-schema trade-off.
+
+**Roadmap + CLAUDE.md**
+- `docs/ROADMAP.md` — phase header bumps "6 migrations applied" → "8 migrations applied" with the two new migration names called out; new Phase 7 checked row summarises the tightening (12 → 8 advisor lints).
+- `CLAUDE.md` — "Previous tips merged" extended with `claude/phase-8-launch-prep-ud42O` (PR #26); "Latest tip" line replaced to point at `main@af7e6cb` and summarise this session's work.
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (112 files, biome clean — new files are `.sql` / `.sh` / `.md`)
+- `pnpm typecheck` ✅ (5 packages)
+- `pnpm test` ✅ — **34 tests pass** (26 `@kpu/core` + 8 `@kpu/web`: 3 a11y + 5 setup-gate)
+- `pnpm build` ✅ — bundles preserved: `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB, `/b/[id]` 197 kB, `/setup` 116 kB, `/legal/privacy` 116 kB
+- `bash -n scripts/smoke-supabase.sh` ✅ (shellcheck-grade syntax)
+- `bash scripts/smoke-supabase.sh` against the harness → exits 2 with the expected `host_not_allowed` message (sandbox correctly detected; live probes deferred to operator dev machine)
+- Direct ACL verification via MCP `execute_sql`: `has_function_privilege('anon', 'public.on_auth_user_created()', 'EXECUTE')` → `false`; `('supabase_auth_admin', …)` → `true`; `('authenticated', 'public.rotate_share_token(uuid)', …)` → `true`; `('anon', 'public.rotate_share_token(uuid)', …)` → `false`
+- Supabase security advisor re-run: lint count drops 12 → 8. Closed: 2× `on_auth_user_created`, 2× `on_auth_user_email_updated`, plus `anon` on `rotate_share_token` + `revoke_share_token`. Remaining 8 are accepted-by-design (4 lints on the two `has_*_access` RLS helpers + 2 `authenticated` lints on the share-token RPCs + `extension_in_public` for moddatetime + `public_bucket_allows_listing` for the avatars bucket).
+
+### Decisions taken this session
+
+- **ADR 0020** — revoke `EXECUTE` rather than move trigger / share-token functions to a `private` schema (every RLS policy and the `auth.users` triggers reference the bare names; the refactor is a separate session). Keep `has_*_access` exposed because RLS policies evaluate them inline for both `anon` and `authenticated`. Smoke probe stays out of CI: it needs the service-role key and is per-project.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. Privacy page sign-off pass — operator confirms `support@` / `security@` / `privacy@` + canonical domain (`kabanplusultra.app`), then strip the in-page "stub status" banner and sweep `STORE_LISTING.md` + `RELEASE_NOTES_1.0.md` in the same pass.
+2. Flip `.github/workflows/release-{ios,android}.yml` from `workflow_dispatch`-only to `release.published` once the first manual TestFlight / Play upload succeeds on a dev machine.
+3. End-to-end smoke against the connected Supabase — operator runs `bash scripts/smoke-supabase.sh` from a dev machine to confirm the live grants and the `/setup` gate state.
+4. Lighthouse a11y ≥ 95 / perf ≥ 90 live verification on `/`, `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`, `/legal/privacy` (still blocked on a real browser).
+5. End-to-end fresh-VPS dry run of `install-kaban.sh` (still blocked on a Docker host outside the harness).
+6. Dev-machine session: `npx cap add ios|android`, `pnpm --filter @kpu/mobile generate:assets`, drop the GitHub Actions secrets in, dispatch the two release workflows.
+7. Optional follow-up — move `on_auth_user_*`, `rotate_share_token`, `revoke_share_token`, and the `has_*_access` helpers into a `private` schema; the advisor lints for those would clear entirely. ADR 0020 records the deferral.
+
+### Blockers / open questions
+
+- **SMTP / Google OAuth** still unprovided; `/setup` keeps the inline magic-link path for the operator's first claim.
+- **No native iOS / Android folders** — `apps/mobile/{ios,android}/` scaffolds need `npx cap add` on a dev machine.
+- **GitHub Actions release secrets** not yet populated (full list in the previous session log entry).
+- **Placeholder addresses + domain** still appear in `STORE_LISTING.md`, `RELEASE_NOTES_1.0.md`, and `/legal/privacy`; sweep on operator sign-off.
+- **No Docker daemon / no browser in the harness** — same recurring blockers for the install-kaban dry run and the Lighthouse pass.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+- **Supabase advisor — accepted lints** — 4 on `has_*_access` (RLS-inline) + 2 on `rotate_share_token` / `revoke_share_token` for `authenticated` (intentional) + `extension_in_public` (moddatetime) + `public_bucket_allows_listing` (avatars). All documented in ADR 0020 as "out of scope this session"; revisit when the schema refactor lands.
+
+---
+
 ## 2026-05-14 — Phase 8 prep continuation: release CI workflows + ExportOptions.plist + App/Play listing copy
 
 - **Agent / model**: Claude (Opus 4.7)

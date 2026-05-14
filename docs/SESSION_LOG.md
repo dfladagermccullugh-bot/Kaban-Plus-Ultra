@@ -4,6 +4,156 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-14 — Phase 7 polish: ARM64 multi-arch + healthchecked Postgres backup side-car
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-plus-ultra-dev-UYiN1` (session-assigned;
+  stacks on `main` at `00772f8` — merge of PR #22 from the previous
+  session's first-run wizard branch)
+- **Phase**: 7 (polish closeout) → Phase 8 (prep notes only)
+
+### Goal
+
+Land the two remaining Phase 7 polish items — ARM64 multi-arch build
+support for `docker/Dockerfile.web` and a healthchecked Postgres
+backup side-car — and flag the human-only Phase 8 blockers on the
+roadmap.
+
+### Changed
+
+**`.env.local` regeneration** (`apps/web/.env.local` — local-only,
+gitignored)
+- Rewritten from the MCP connector at session start: URL + legacy anon
+  JWT for project ref `xqdhpxfgrckjzzbenivp` + `NEXT_PUBLIC_SITE_URL=
+  http://localhost:3000` + `SETUP_TOKEN=dev-setup-token-change-me` so
+  `/setup` is reachable in `pnpm dev`. Service-role key not exposed by
+  MCP — left commented out with a note to ask the operator.
+
+**ARM64 multi-arch (`docker/Dockerfile.web` + new helper)**
+- `Dockerfile.web` — added top-level `ARG TARGETPLATFORM` /
+  `ARG BUILDPLATFORM` and `--platform=$TARGETPLATFORM` on all three
+  `FROM node:22-alpine` stages. `node:22-alpine` is itself multi-arch,
+  so buildkit picks the right native base; pnpm + Next pull
+  arch-appropriate prebuilt binaries (sharp, esbuild) at install when
+  buildx + QEMU is wired up.
+- `scripts/build-multiarch.sh` — wraps `docker buildx build
+  --platform linux/amd64,linux/arm64`. Creates a `kaban-builder`
+  `docker-container` builder (the default `docker` driver can't push
+  multi-arch manifests), registers QEMU binfmt handlers via
+  `tonistiigi/binfmt --install all` (idempotent), and forces
+  `--output=type=cacheonly` for multi-platform builds without `--push`
+  (Docker has no local manifest-list store). `bash -n` clean. Defaults
+  to `PLATFORMS=linux/amd64,linux/arm64`; override with
+  `PLATFORMS=linux/arm64 ./scripts/build-multiarch.sh` for a single
+  target.
+
+**Postgres backup side-car (`docker/backup/` + `kaban-stack.yml` +
+`.env.example`)**
+- `docker/backup/run.sh` — POSIX-`sh` dump loop running `pg_dumpall
+  --clean --if-exists | gzip -9` against the upstream Supabase `db`
+  service. Writes `backups/kaban-<ts>.sql.gz`, touches
+  `backups/.last-ok`, rotates with `find -mtime +N -delete` (skipped
+  when `BACKUP_RETENTION_DAYS=0`). First dump runs at boot so the
+  healthcheck has a marker before `start_period` expires.
+- `docker/backup/healthcheck.sh` — exits non-zero when `.last-ok` is
+  older than `2 × BACKUP_INTERVAL_SECONDS` (one missed cycle of
+  tolerance before flipping `docker compose ps` to unhealthy).
+- `docker/kaban-stack.yml` — new `db-backup` service running stock
+  `postgres:17-alpine` with the two scripts bind-mounted in via
+  `entrypoint: ["sh", "/usr/local/bin/run-backup.sh"]`. Healthchecked,
+  `depends_on: { db: service_healthy }`, restart-unless-stopped. Bind
+  mount `./backups:/backups` so dumps survive `compose down -v` and
+  off-host rsync just needs a host path. Restore command documented
+  inline in the compose comment (`gunzip -c … | psql …`).
+- `docker/.env.example` — new `BACKUP_INTERVAL_SECONDS` (default
+  `86400`) + `BACKUP_RETENTION_DAYS` (default `14`) section.
+- `.gitignore` — `docker/backups/` added so dumps never leak into git.
+
+**Docs**
+- `docs/SELF_HOSTING.md` — "Backups" rewritten with the new side-car
+  (vars table + restore one-liner + off-host disclaimer); new "ARM64
+  / Raspberry Pi" section documents `build-multiarch.sh`. Phase 7
+  follow-ups list trimmed (backups + ARM64 marked shipped).
+- `docs/ROADMAP.md` — Phase 7 polish boxes ticked (ARM64 multi-arch +
+  backup side-car); Phase 8 expanded with explicit human-only blocker
+  notes (Apple Dev account, Play Console, Xcode/Android Studio,
+  marketing assets, privacy URL) so the next session can pick up the
+  agent-tractable Phase 8 work cleanly when those land.
+- `docs/DECISIONS/0017-multi-arch-and-postgres-backup-sidecar.md` —
+  new ADR (decision, alternatives considered, consequences).
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅ (111 files, biome clean)
+- `pnpm typecheck` ✅ (5 packages — `@kpu/core`, `@kpu/db`, `@kpu/ui`,
+  `@kpu/web`, `@kpu/mobile`)
+- `pnpm test` ✅ — **34 tests pass** (26 `@kpu/core` + 8 `@kpu/web`:
+  3 a11y + 5 setup-gate)
+- `pnpm build` ✅ — bundles preserved: `/b/[id]/c/[cardId]` 161 kB,
+  `/sign-in` 116 kB, `/b/[id]` 196 kB, `/setup` 116 kB.
+- `bash -n` clean on `scripts/build-multiarch.sh`; `sh -n` clean on
+  `docker/backup/run.sh` and `docker/backup/healthcheck.sh`.
+- Compose / docker-build / buildx **not** exercised end-to-end — no
+  Docker daemon in this harness. Syntax-only verification, same caveat
+  as the previous two sessions' install-kaban.sh / kaban-stack.yml
+  work.
+
+### Decisions taken this session
+
+- **ADR 0017** — multi-arch via `--platform=$TARGETPLATFORM` + a
+  thin buildx wrapper script instead of a forked Dockerfile per arch;
+  stock `postgres:17-alpine` for the backup side-car (no third-party
+  image to vendor into a `curl|sh` installer) with bind-mounted
+  dump+healthcheck scripts; on-host durability only — off-host
+  ship-out left to the operator.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **End-to-end fresh-VPS dry run** of `install-kaban.sh` (still
+   blocked on a Docker host outside this harness). Adds two new
+   acceptance criteria: (a) buildx produces a working `linux/arm64`
+   image on a Pi 4 / 5, and (b) the `db-backup` side-car lands a
+   first dump within `start_period` and stays healthy across a host
+   reboot.
+2. **End-to-end smoke against the connected Supabase** — boot
+   `pnpm dev`, exercise `/setup?t=dev-setup-token-change-me`, magic
+   link → board → card → label → image → export + reimport. Still
+   blocked on a browser in the harness.
+3. **Lighthouse a11y ≥ 95 / perf ≥ 90 live verification** on `/`,
+   `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`. Still
+   blocked on a browser.
+4. **Phase 8 prep** — agent-tractable work once the human supplies
+   accounts + assets (see ROADMAP "Phase 8 — Store submission"
+   blockers): generate launch icon + splash from a source SVG, draft
+   the `xcrun altool` / `gradle bundleRelease` plumbing, write v1.0
+   release notes.
+
+### Blockers / open questions
+
+- **No Docker daemon in the harness** — multi-arch buildx invocation
+  + `db-backup` boot were verified by static analysis only. A real
+  Pi / amd64 VPS dry run is the same outstanding blocker as the
+  previous two sessions.
+- **No browser in the harness** — neither the live Lighthouse pass
+  nor the Supabase smoke flow can run from here.
+- **SMTP / Google OAuth** still unprovided. `/setup`'s inline magic
+  link sidesteps SMTP for first-run; subsequent sign-ins still need a
+  working email path.
+- **Native iOS/Android folders** still deferred — `apps/mobile/`
+  config exists but `npx cap add ios|android` needs a dev machine
+  with Xcode + Android Studio.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+- **Phase 8 (store submission)** is human-driven; see the new ROADMAP
+  block for the explicit blocker list (Apple Dev account, Play
+  Console, marketing assets, privacy URL).
+
+---
+
 ## 2026-05-13 — Phase 7: first-run admin wizard (`/setup`) for the bundled stack
 
 - **Agent / model**: Claude (Opus 4.7)

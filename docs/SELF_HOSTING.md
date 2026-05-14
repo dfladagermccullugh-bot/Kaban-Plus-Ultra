@@ -167,11 +167,76 @@ any new files in `supabase/migrations/`.
 
 ## Backups
 
-- **Postgres** — nightly `pg_dump` piped into an S3-compatible bucket
-  (B2 / R2 / S3). Path A: use Supabase's managed backups. Path B: add a
-  `restic` or `pgbackrest` side-car to your compose.
-- **Storage** — the `card-images` and `exports` buckets live in Supabase
-  Storage; the same backup story applies.
+### Postgres
+
+**Path A (hosted Supabase)** — Supabase runs managed backups for you;
+see Project Settings → Database → Backups.
+
+**Path B (bundled self-host)** — `kaban-stack.yml` ships a
+`db-backup` side-car that runs `pg_dumpall` on a schedule and writes
+gzipped dumps to `docker/backups/` on the host.
+
+The defaults (configurable via `docker/.env`):
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `BACKUP_INTERVAL_SECONDS` | `86400` (daily) | Sleep between dumps. |
+| `BACKUP_RETENTION_DAYS`   | `14`            | Delete dumps older than N days. `0` = forever. |
+
+The container reports unhealthy if no fresh dump has landed in
+`2 × BACKUP_INTERVAL_SECONDS`, so `docker compose ps` surfaces silent
+failures.
+
+Restore a dump (run from the `docker/` directory):
+
+```sh
+gunzip -c backups/kaban-<timestamp>.sql.gz \
+  | docker compose -f kaban-stack.yml exec -T db \
+      psql -U postgres -v ON_ERROR_STOP=1
+```
+
+`pg_dumpall --clean --if-exists` drops and recreates every database
+before the data load, so the restore is destructive — schedule
+downtime first. Ship the gz files off-host (B2 / R2 / S3 nightly cron,
+`restic`, etc.) for proper disaster recovery; the side-car only
+guarantees *on-host* durability.
+
+To disable the side-car for a deploy: `docker compose -f
+kaban-stack.yml stop db-backup` (it won't auto-restart until you
+`start` it again or recreate the stack).
+
+### Storage
+
+The `card-images`, `avatars`, and `exports` buckets live in Supabase
+Storage. Hosted Supabase backs these up alongside Postgres; on the
+bundled self-host stack they're written under
+`docker/supabase/upstream/docker/volumes/storage/` on the host —
+include that path in your off-host backup cron.
+
+## ARM64 / Raspberry Pi
+
+`docker/Dockerfile.web` declares `--platform=$TARGETPLATFORM` on every
+stage so a single Dockerfile builds for either `linux/amd64` or
+`linux/arm64` (no separate `Dockerfile.arm`). To build a single
+image that ships for both:
+
+```sh
+./scripts/build-multiarch.sh --push -t ghcr.io/<you>/kaban-web:0.7
+```
+
+The script creates a `kaban-builder` `docker-container` buildx builder
+the first time it runs, registers QEMU binfmt handlers via
+`tonistiigi/binfmt --install all`, then drives `docker buildx build
+--platform linux/amd64,linux/arm64`. Without `--push` a multi-arch
+build is `--output=type=cacheonly` because Docker has no local registry
+for manifest lists; for a host-arch-only smoke build pass
+`PLATFORMS=linux/arm64 ./scripts/build-multiarch.sh` (or `linux/amd64`).
+
+Native ARM64 builds (running directly on a Pi 4 / 5) just use plain
+`docker compose -f kaban-stack.yml up -d --build` — `node:22-alpine`,
+`postgres:17-alpine`, and the upstream Supabase images all publish
+multi-arch manifests, and `--platform=$TARGETPLATFORM` makes buildkit
+pick the right native base.
 
 ## First-run wizard
 
@@ -210,6 +275,4 @@ board. Then visit `/setup?t=<token>` again.
 
 - End-to-end fresh-VPS dry run of `install-kaban.sh` (needs a Docker
   host outside this harness).
-- Healthchecked Postgres backups baked in.
 - Optional Sentry / Plausible side-cars.
-- ARM64 multi-arch image for Raspberry-Pi-class hosts.

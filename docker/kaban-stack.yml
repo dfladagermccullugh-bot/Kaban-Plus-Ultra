@@ -42,3 +42,46 @@ services:
       # auth/realtime/rest hops on the docker network instead of hairpinning
       # out through caddy.
       SUPABASE_INTERNAL_URL:     http://kong:8000
+
+  # ── Postgres backup side-car ──────────────────────────────────────────────
+  # Streams a gzipped `pg_dumpall` of the upstream Supabase `db` service to
+  # ./backups/ on the host every BACKUP_INTERVAL_SECONDS (default daily).
+  # Rotates dumps older than BACKUP_RETENTION_DAYS (default 14). The
+  # container reports unhealthy when no fresh dump has landed in
+  # 2 × interval, so `docker compose ps` surfaces silent failures.
+  #
+  # Restore (from inside the docker/ directory):
+  #   gunzip -c backups/kaban-<ts>.sql.gz \
+  #     | docker compose -f kaban-stack.yml exec -T db \
+  #         psql -U postgres -v ON_ERROR_STOP=1
+  #
+  # Disable by setting `profiles: ["disabled"]` here or by stopping just
+  # this service: `docker compose -f kaban-stack.yml stop db-backup`.
+  db-backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST:                  db
+      PGPORT:                  5432
+      PGUSER:                  postgres
+      PGPASSWORD:              ${POSTGRES_PASSWORD}
+      PGDATABASE:              postgres
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS:   ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_DIR:              /backups
+    volumes:
+      - ./backups:/backups
+      - ./backup/run.sh:/usr/local/bin/run-backup.sh:ro
+      - ./backup/healthcheck.sh:/usr/local/bin/backup-healthcheck.sh:ro
+    entrypoint: ["sh", "/usr/local/bin/run-backup.sh"]
+    healthcheck:
+      test: ["CMD", "sh", "/usr/local/bin/backup-healthcheck.sh"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      # First dump runs immediately at boot; give it 5 minutes to land
+      # against a fresh, still-restoring db on a small VPS.
+      start_period: 5m

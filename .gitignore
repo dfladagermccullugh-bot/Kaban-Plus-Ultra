@@ -42,3 +42,6 @@ test-results/
 supabase/.branches
 supabase/.temp
 supabase/.env
+
+# Self-host stack — runtime artifacts
+docker/backups/

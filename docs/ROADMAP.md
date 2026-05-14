@@ -3,7 +3,7 @@
 Phases are sequential. Each ends with a working, demoable build. Tick boxes as
 items land. Update at the end of every session.
 
-**Current phase:** Phase 7 main work. Hosted Supabase (ref `xqdhpxfgrckjzzbenivp`) is live with all 6 migrations applied; `apps/web/.env.local` is regenerated from the MCP connector at session start. Phase 7's bundled self-host path is now real: `docker/supabase/PIN` pins the upstream `supabase/supabase` self-host stack at `v1.24.09`; `docker/supabase/fetch.sh` unpacks its `docker/` subtree (verified end-to-end against the GitHub tarball this session); `docker/kaban-stack.yml` merges kaban-web + caddy + upstream Supabase via `include:`; `docker/bootstrap.sh` waits for Postgres health and applies `supabase/migrations/*.sql` via `psql`; `scripts/install-kaban.sh` is the `curl ... | sh` one-liner with DNS pre-flight, signed-JWT generation, compose pull + up, and first-boot migrations. Still outstanding for v1: end-to-end fresh-VPS dry run of `install-kaban.sh` (needs a Docker host), first-run admin wizard, native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds, Lighthouse a11y ≥ 95 / perf ≥ 90 live verification, end-to-end smoke against the connected Supabase (deferred — harness has no browser to drive magic-link sign-in).
+**Current phase:** Phase 7 is feature-complete; Phase 8 (store submission) is human-driven and starts after a real-host dry run. Hosted Supabase (ref `xqdhpxfgrckjzzbenivp`) is live with all 6 migrations applied; `apps/web/.env.local` is regenerated from the MCP connector at session start. The bundled self-host path now ships: `docker/supabase/PIN` pins `supabase/supabase` at `v1.24.09`, `docker/kaban-stack.yml` merges kaban-web + caddy + upstream Supabase via `include:`, `docker/bootstrap.sh` applies `supabase/migrations/*.sql` once Postgres is healthy, `scripts/install-kaban.sh` is the `curl ... | sh` installer (DNS pre-flight + containerised JWT signing + first-boot migrations), and the `/setup?t=…` first-run wizard claims the workspace owner without SMTP. Phase 7 polish landed this session: `Dockerfile.web` is buildx-ready (`--platform=$TARGETPLATFORM` on every stage) with `scripts/build-multiarch.sh` driving `linux/amd64,linux/arm64`; a healthchecked `db-backup` side-car streams gzipped `pg_dumpall` into `docker/backups/` on a configurable schedule with retention rotation. Still outstanding for v1: end-to-end fresh-VPS dry run of `install-kaban.sh` (blocked on a Docker host outside this harness), native iOS/Android Xcode/Studio projects (deferred to a dev machine), TestFlight + Play internal builds (Phase 8 / blocked on the human), Lighthouse a11y ≥ 95 / perf ≥ 90 live verification (no browser in the harness), end-to-end smoke against the connected Supabase (no browser + SMTP).
 
 ---
 
@@ -111,15 +111,42 @@ Goal: one command spins up a private instance.
 - [x] Single `kaban-stack.yml` that bundles upstream Supabase pinned to a known-good tag (`docker/supabase/PIN` at `v1.24.09`; `docker/supabase/fetch.sh` unpacks it; `docker/kaban-stack.yml` merges via `include:`)
 - [x] One-liner installer (`curl ... | sh`) with DNS pre-flight + first-boot migrations (`scripts/install-kaban.sh` + `docker/bootstrap.sh`)
 - [x] First-run wizard for the initial admin account (`/setup` gated by `SETUP_TOKEN`; installer generates the token + prints the URL)
+- [x] ARM64 multi-arch image (`docker/Dockerfile.web` with `--platform=$TARGETPLATFORM` on every stage; `scripts/build-multiarch.sh` wraps buildx for `linux/amd64,linux/arm64`)
+- [x] Healthchecked Postgres backup side-car (`db-backup` service in `kaban-stack.yml`; gzipped `pg_dumpall` to `docker/backups/`; freshness healthcheck; `BACKUP_INTERVAL_SECONDS` + `BACKUP_RETENTION_DAYS` envs)
 
 ## Phase 8 — Store submission (human-driven)
 
 Goal: publish.
 
-- [ ] App Store listing (screenshots, description, privacy policy)
-- [ ] App Store review pass
-- [ ] Play Store listing
-- [ ] Play Store review pass
+Phase 8 is gated almost entirely on assets and accounts only a human
+can provide; no agent session can land these end-to-end. Blockers
+flagged for the operator:
+
+- **Apple Developer Program account** ($99 / yr, ~24h identity check)
+  — required for TestFlight + App Store.
+- **Google Play Console account** ($25 one-time) — required for the
+  internal-testing track.
+- **Xcode + Android Studio installs on a dev machine** — `apps/mobile/`
+  is wired (Capacitor config + camera + haptics) but `npx cap add ios`
+  and `npx cap add android` still need to be run somewhere with the
+  native toolchains available. The harness has neither.
+- **Marketing copy + screenshots** — descriptions, keywords, support
+  URL, marketing URL, privacy-policy URL, six hero screenshots per
+  device class. None of this can be auto-generated responsibly.
+- **Privacy policy** hosted at a stable URL (e.g. `/legal/privacy`).
+  Stub exists in `docs/SECURITY.md`; needs a real version reviewed by
+  the operator before submission.
+
+What an agent session *can* do once those are in hand: generate the
+launch icon + splash set from a single source SVG, fill out the App
+Store / Play Console listing JSON exports (`xcrun altool` /
+`gradle bundleRelease` plumbing), run the build pipelines for
+TestFlight + Play Internal, and write the v1.0 release notes.
+
+- [ ] App Store listing (screenshots, description, privacy policy) — blocked on assets + privacy URL
+- [ ] App Store review pass — blocked on TestFlight build + Apple Dev account
+- [ ] Play Store listing — blocked on assets + privacy URL
+- [ ] Play Store review pass — blocked on Play Internal build + Play Console account
 
 ---
 

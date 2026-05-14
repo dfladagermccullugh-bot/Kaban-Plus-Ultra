@@ -2,19 +2,19 @@
 
 ## The origin
 
-This project began as a chat between two friends, Regan and Cypher:
+This project began as a chat between two friends, F1 and F2:
 
-- **Regan**: *"man trello just always looks like chaos to my brain"*
-- **Regan**: *"see you guys have pseudo 'swimlanes' for each column that indicate the state of things"*
-- **Cypher**: *"Just cards acting as separators"*
-- **Regan**: *"I just need trello with swimlanes"*
-- **Cypher**: *"Can't just vibe code one?"*
-- **Regan**: *"you know how trello has columns? what if it had rows too to separate different things? simple concept, rarely executed well."*
-- **Cypher**: *"I just feel this recurring pattern. Any subscription you think you like eventually gets flipped upside down and they take advantage of you."*
-- **Regan**: shares `https://github.com/obsidian-community/obsidian-kanban`
-- **Cypher**: *"Image support would be nice."*
-- **Cypher**: shares Trello upsell screenshot. *"We need our own 'Trello'."*
-- **Cypher**: *"Can't we 'have Trello at home?'"*
+- **F1**: *"man trello just always looks like chaos to my brain"*
+- **F1**: *"see you guys have pseudo 'swimlanes' for each column that indicate the state of things"*
+- **F2**: *"Just cards acting as separators"*
+- **F1**: *"I just need trello with swimlanes"*
+- **F2**: *"Can't just vibe code one?"*
+- **F1**: *"you know how trello has columns? what if it had rows too to separate different things? simple concept, rarely executed well."*
+- **F2**: *"I just feel this recurring pattern. Any subscription you think you like eventually gets flipped upside down and they take advantage of you."*
+- **F1**: shares `https://github.com/obsidian-community/obsidian-kanban`
+- **F2**: *"Image support would be nice."*
+- **F2**: shares Trello upsell screenshot. *"We need our own 'Trello'."*
+- **F2**: *"Can't we 'have Trello at home?'"*
 
 That chat is the spec.
 

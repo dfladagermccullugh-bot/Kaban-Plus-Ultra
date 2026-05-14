@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2732 2732" width="2732" height="2732">
+  <title>Kaban Plus Ultra splash (dark)</title>
+  <!-- Background matches the design-system dark `--color-bg` token: oklch(15% 0.01 264) ≈ #1B1D27 -->
+  <rect width="2732" height="2732" fill="#1B1D27" />
+  <g transform="translate(854 854)">
+    <rect width="1024" height="1024" rx="224" ry="224" fill="#5B6CE8" />
+    <g transform="translate(192 192)">
+      <rect x="0"   y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.95" />
+      <rect x="336" y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+      <rect x="0"   y="336" width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+      <g transform="translate(0 -24)">
+        <rect x="336" y="336" width="304" height="304" rx="48" fill="#FFFFFF" />
+      </g>
+    </g>
+  </g>
+</svg>

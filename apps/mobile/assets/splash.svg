@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2732 2732" width="2732" height="2732">
+  <title>Kaban Plus Ultra splash (light)</title>
+  <!--
+    Splash screens are 2732×2732 so the system can letterbox them to any
+    device aspect ratio. We center the icon inside the inner 50% so neither
+    a 9:19.5 iPhone nor a 4:3 iPad crops it.
+  -->
+  <rect width="2732" height="2732" fill="#FCFCFD" />
+  <g transform="translate(854 854)">
+    <!-- inline icon-only, scaled to 1024 (centered in 2732) -->
+    <rect width="1024" height="1024" rx="224" ry="224" fill="#5B6CE8" />
+    <g transform="translate(192 192)">
+      <rect x="0"   y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.95" />
+      <rect x="336" y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+      <rect x="0"   y="336" width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+      <g transform="translate(0 -24)">
+        <rect x="336" y="336" width="304" height="304" rx="48" fill="#FFFFFF" />
+      </g>
+    </g>
+  </g>
+</svg>

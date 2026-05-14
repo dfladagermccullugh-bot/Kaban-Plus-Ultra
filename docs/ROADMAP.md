@@ -143,6 +143,30 @@ Store / Play Console listing JSON exports (`xcrun altool` /
 `gradle bundleRelease` plumbing), run the build pipelines for
 TestFlight + Play Internal, and write the v1.0 release notes.
 
+Phase 8 prep landed this session (agent-tractable pieces only):
+
+- [x] Source SVG launch assets under `apps/mobile/assets/`
+  (`icon-only.svg`, `icon-foreground.svg`, `icon-background.svg`,
+  `splash.svg`, `splash-dark.svg`) + `pnpm --filter @kpu/mobile
+  generate:assets` script (wraps `npx --yes @capacitor/assets@3`).
+  Pending `npx cap add ios|android` on a dev machine before
+  per-platform bundles can be written.
+- [x] `scripts/release-ios.sh` — staged TestFlight plumbing
+  (`xcodebuild archive` → `-exportArchive` → `xcrun altool
+  --upload-app`). `bash -n` clean; refuses to run without
+  `apps/mobile/ios/` + `APPLE_ID` + `APP_SPECIFIC_PASSWORD` + `TEAM_ID`.
+- [x] `scripts/release-android.sh` — staged Play Internal plumbing
+  (`./gradlew bundleRelease` + optional `fastlane supply`). `bash -n`
+  clean; refuses to run without `apps/mobile/android/` + keystore env.
+- [x] `docs/RELEASE_NOTES_1.0.md` — v1.0 release notes draft, with a
+  pre-tag checklist for the human (privacy URL, screenshots, signed
+  builds, install smoke-test, Lighthouse pass).
+- [x] `/legal/privacy` page — real Next.js route stubbed from
+  `docs/SECURITY.md`, footer-linked from `/`, flagged in-page as
+  pending legal review.
+
+Still blocked on the human:
+
 - [ ] App Store listing (screenshots, description, privacy policy) — blocked on assets + privacy URL
 - [ ] App Store review pass — blocked on TestFlight build + Apple Dev account
 - [ ] Play Store listing — blocked on assets + privacy URL

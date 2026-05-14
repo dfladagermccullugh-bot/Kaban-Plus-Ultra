@@ -49,8 +49,14 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <footer className="mt-auto pt-16 text-xs text-text-muted">
-        v0.0.0 · See <code className="font-mono">docs/ROADMAP.md</code>
+      <footer className="mt-auto flex items-center gap-3 pt-16 text-xs text-text-muted">
+        <span>
+          v0.0.0 · See <code className="font-mono">docs/ROADMAP.md</code>
+        </span>
+        <span aria-hidden>·</span>
+        <Link href="/legal/privacy" className="hover:text-text">
+          Privacy
+        </Link>
       </footer>
     </main>
   );

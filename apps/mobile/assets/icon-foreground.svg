@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Kaban Plus Ultra adaptive icon foreground</title>
+  <!--
+    Android adaptive icon foreground. Per the spec, the inner 66% of the
+    canvas (≈ 672×672 centered) is the safe zone; anything outside may be
+    cropped by the system mask. We center the 2x2 card grid inside that
+    safe zone. Background is provided by icon-background.svg.
+  -->
+  <g transform="translate(192 192)">
+    <rect x="0"   y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.95" />
+    <rect x="336" y="0"   width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+    <rect x="0"   y="336" width="304" height="304" rx="48" fill="#FFFFFF" opacity="0.78" />
+    <g transform="translate(0 -24)">
+      <rect x="336" y="336" width="304" height="304" rx="48" fill="#FFFFFF" />
+    </g>
+  </g>
+</svg>

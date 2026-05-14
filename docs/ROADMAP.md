@@ -143,7 +143,8 @@ Store / Play Console listing JSON exports (`xcrun altool` /
 `gradle bundleRelease` plumbing), run the build pipelines for
 TestFlight + Play Internal, and write the v1.0 release notes.
 
-Phase 8 prep landed this session (agent-tractable pieces only):
+Phase 8 prep landed across the last two sessions (agent-tractable pieces
+only):
 
 - [x] Source SVG launch assets under `apps/mobile/assets/`
   (`icon-only.svg`, `icon-foreground.svg`, `icon-background.svg`,
@@ -164,6 +165,20 @@ Phase 8 prep landed this session (agent-tractable pieces only):
 - [x] `/legal/privacy` page — real Next.js route stubbed from
   `docs/SECURITY.md`, footer-linked from `/`, flagged in-page as
   pending legal review.
+- [x] `apps/mobile/ios/ExportOptions.plist` — filled template
+  (`method=app-store`, `signingStyle=automatic`, `teamID=$TEAM_ID`
+  placeholder). Substituted by the release workflow from a GitHub
+  Actions secret before `xcodebuild -exportArchive`.
+- [x] `.github/workflows/release-ios.yml` + `release-android.yml` —
+  workflow_dispatch-only shells that wrap the release scripts. iOS
+  imports a .p12 signing cert via a base64 secret + creates a temporary
+  keychain; Android materialises the keystore + Play service-account
+  JSON from secrets. Tag-triggered `release.published` line is in place
+  but commented out until a manual upload has succeeded once.
+- [x] `docs/STORE_LISTING.md` — App Store + Play Store listing copy
+  draft (subtitle, full descriptions, keywords, what's-new, screenshot
+  caption guide). Length-checked against the actual store caps;
+  placeholder domain + contacts flagged for operator review.
 
 Still blocked on the human:
 

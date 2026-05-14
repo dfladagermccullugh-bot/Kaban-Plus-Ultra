@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Kaban Plus Ultra — Xcode export options for `xcodebuild -exportArchive`.
+  Consumed by scripts/release-ios.sh during the TestFlight pipeline.
+
+  signingStyle=automatic relies on Xcode's "Automatically manage signing"
+  toggle and `-allowProvisioningUpdates`. The teamID below is a placeholder
+  — replace $TEAM_ID with the 10-character Apple Developer team ID from
+  developer.apple.com → Membership before the first archive. Until then,
+  the release script will fail at the export step with a signing error
+  pointing back here.
+
+  bundleId is wired to apps/mobile/capacitor.config.ts (appId =
+  app.kabanplusultra); update both together if it ever changes.
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store</string>
+
+    <key>teamID</key>
+    <string>$TEAM_ID</string>
+
+    <key>signingStyle</key>
+    <string>automatic</string>
+
+    <key>stripSwiftSymbols</key>
+    <true/>
+
+    <key>uploadSymbols</key>
+    <true/>
+
+    <key>uploadBitcode</key>
+    <false/>
+
+    <key>compileBitcode</key>
+    <false/>
+
+    <key>destination</key>
+    <string>export</string>
+
+    <key>generateAppStoreInformation</key>
+    <false/>
+
+    <key>manageAppVersionAndBuildNumber</key>
+    <true/>
+</dict>
+</plist>

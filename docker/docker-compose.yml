@@ -35,6 +35,8 @@ services:
       NEXT_PUBLIC_SITE_URL:          ${NEXT_PUBLIC_SITE_URL}
       # Server-only; needed for invite-by-email + audit-events writer.
       SUPABASE_SERVICE_ROLE_KEY:     ${SUPABASE_SERVICE_ROLE_KEY}
+      # First-run wizard gate. Empty disables /setup.
+      SETUP_TOKEN:                   ${SETUP_TOKEN:-}
     expose:
       - "3000"
     healthcheck:

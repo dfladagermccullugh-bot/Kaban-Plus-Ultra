@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/env';
+import { getServerSupabaseUrl, getSupabaseAnonKey } from '@/lib/env';
 import type { Database } from '@kpu/db';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -15,7 +15,7 @@ import { cookies } from 'next/headers';
  */
 export async function createClient() {
   const cookieStore = await cookies();
-  return createServerClient<Database>(getSupabaseUrl(), getSupabaseAnonKey(), {
+  return createServerClient<Database>(getServerSupabaseUrl(), getSupabaseAnonKey(), {
     cookies: {
       getAll() {
         return cookieStore.getAll();

@@ -33,11 +33,13 @@ cp docker/.env.example docker/.env       # then edit
 cd docker && docker compose up -d --build
 ```
 
-Caddy provisions a Let's Encrypt cert for `$KABAN_HOST` automatically.
-Once the stack is up, the installer prints a one-time
-`https://$KABAN_HOST/setup?t=<token>` URL — open it in a private window
-to claim the workspace owner account. After that, sign in normally with
-a magic link.
+For a real DNS name Caddy provisions a Let's Encrypt cert automatically.
+For a `KABAN_HOST=localhost` deploy the installer sets `KABAN_SCHEME=http`,
+so Caddy serves plain HTTP on `:80` — no self-signed-cert click-through and
+no `308 → https` redirect. Once the stack is up, the installer prints a
+one-time `http(s)://$KABAN_HOST/setup?t=<token>` URL — open it in a private
+window to claim the workspace owner account. After that, sign in normally
+with a magic link.
 
 ## Prereqs
 
@@ -215,9 +217,12 @@ include that path in your off-host backup cron.
 
 ## ARM64 / Raspberry Pi
 
-`docker/Dockerfile.web` declares `--platform=$TARGETPLATFORM` on every
-stage so a single Dockerfile builds for either `linux/amd64` or
-`linux/arm64` (no separate `Dockerfile.arm`). To build a single
+`docker/Dockerfile.web` uses a bare `FROM node:22-alpine` on every stage.
+That base is a multi-arch manifest, so the default builder resolves it to
+the host arch and `docker buildx --platform …` resolves it to each
+requested target — one Dockerfile, no separate `Dockerfile.arm`, and no
+pre-`FROM` `ARG TARGETPLATFORM` (which is empty under `docker compose up
+--build` and makes the platform parser reject `""`). To build a single
 image that ships for both:
 
 ```sh
@@ -235,8 +240,7 @@ for manifest lists; for a host-arch-only smoke build pass
 Native ARM64 builds (running directly on a Pi 4 / 5) just use plain
 `docker compose -f kaban-stack.yml up -d --build` — `node:22-alpine`,
 `postgres:17-alpine`, and the upstream Supabase images all publish
-multi-arch manifests, and `--platform=$TARGETPLATFORM` makes buildkit
-pick the right native base.
+multi-arch manifests, so a bare `FROM` resolves to the Pi's native arch.
 
 ## First-run wizard
 
@@ -270,6 +274,67 @@ docker compose -f kaban-stack.yml exec db psql -U postgres -c \
 
 The trigger cascades the delete to `profiles` and the user's demo
 board. Then visit `/setup?t=<token>` again.
+
+## Troubleshooting
+
+### `FATAL 28P01 (invalid_password)` after re-running the installer
+
+`docker compose down -v` clears Docker-managed volumes but **not** the
+Postgres bind-mount at
+`docker/supabase/upstream/docker/volumes/db/data/`. If `docker/.env` was
+regenerated (fresh random `POSTGRES_PASSWORD`) on top of an existing data
+dir, Postgres keeps the old `supabase_admin` password while every other
+service reads the new one and the auth chain dies.
+
+The installer now detects this and bails with instructions. To start
+clean (this **destroys all local Supabase data and uploads**):
+
+```sh
+bash scripts/install-kaban.sh --wipe
+```
+
+To keep the data instead, restore the `docker/.env` that matches the
+existing cluster and re-run without `--wipe`.
+
+### Git Bash for Windows quirks
+
+- **`docker run -v` path mangling.** MSYS rewrites `/c/Users/…` host
+  paths inside `docker run -v` / `-f` args, so a bind mount or compose
+  file silently resolves to the wrong location. The installer no longer
+  volume-mounts `.env` into the JWT-signing container (it streams the
+  body through an env var), and `bootstrap.sh` `cd`s into `docker/` and
+  uses the **relative** `kaban-stack.yml` instead of an absolute path.
+  If you invoke `docker compose` by hand on Git Bash, run it from the
+  `docker/` directory with a relative `-f kaban-stack.yml`, or prefix the
+  command with `MSYS_NO_PATHCONV=1`.
+- **CRLF line endings.** Clone with `core.autocrlf=input` (or
+  `* text=auto eol=lf` via `.gitattributes`) so the shell scripts keep
+  LF endings — a CRLF `#!/usr/bin/env bash` line fails with
+  `bad interpreter`.
+
+### Self-signed-cert warning on `localhost`
+
+A `KABAN_HOST=localhost` install sets `KABAN_SCHEME=http`, so Caddy
+serves plain HTTP on `:80` with no redirect. If you previously ran with
+`KABAN_SCHEME=https` (or hand-edited `.env`), clear it: set
+`KABAN_SCHEME=http` in `docker/.env` and `docker compose -f
+kaban-stack.yml up -d caddy`. For a real domain leave it `https`.
+
+### `KONG_HTTP_PORT` / port 80 collisions
+
+Caddy binds host `:80` and `:443`. If something else already owns them
+(another reverse proxy, a local nginx), stop it or remap Caddy's
+published ports in `docker/docker-compose.yml`. Kong's `:8000` is
+**internal only** in the bundled stack (not published to the host), so
+`KONG_HTTP_PORT` collisions only matter if you've added your own
+published mapping — change `KONG_HTTP_PORT` in `docker/.env` if so.
+
+### `compose pull` exits non-zero
+
+`kaban-web` is built locally and isn't on any registry, so `docker
+compose pull` always fails for that one service. The installer passes
+`--ignore-pull-failures`; if you pull by hand, do the same and let
+`up -d --build` build the image.
 
 ## Phase 7 follow-ups (not yet shipped)
 

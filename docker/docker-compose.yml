@@ -53,6 +53,10 @@ services:
       - web
     environment:
       KABAN_HOST: ${KABAN_HOST:-localhost}
+      # `http` for a localhost-only deploy (plain :80, no redirect), `https`
+      # for a real DNS name (Caddy auto-provisions a Let's Encrypt cert).
+      # install-kaban.sh derives this from KABAN_HOST. See docs/DECISIONS/0022.
+      KABAN_SCHEME: ${KABAN_SCHEME:-https}
     ports:
       - "80:80"
       - "443:443"

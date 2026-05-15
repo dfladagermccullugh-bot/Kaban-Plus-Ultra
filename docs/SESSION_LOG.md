@@ -4,6 +4,98 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-15 — Landed all eight ADR-0022 local-Docker deployment fixes in one commit
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/docker-deployment-fixes-qjYAp` (harness-assigned; stacks on `main` at `d4cf4c6` — PR #29 merge of `f199dbe`, the docs-only ADR-0022 catalogue)
+- **Phase**: Phase 7 closeout — make `clone → install-kaban.sh → browser` work with zero manual workarounds
+
+### Goal
+
+Land all eight bugs from ADR 0022 (plus the `.env.example` quoting bonus) as one focused commit so a fresh `git clone → KABAN_HOST=localhost bash scripts/install-kaban.sh` runs end-to-end on any Docker-Engine ≥ 24 / Compose ≥ 2.20 host, including Windows + Git Bash.
+
+### Changed
+
+**Bug #6 — server-side Supabase URL (the blocker)**
+- `apps/web/lib/env.ts` — new `getServerSupabaseUrl()`: `process.env.SUPABASE_INTERNAL_URL ?? getSupabaseUrl()`.
+- `apps/web/lib/supabase/admin.ts`, `server.ts` — switched to `getServerSupabaseUrl()`.
+- `apps/web/lib/supabase/middleware.ts` — graceful pass-through still keyed on the public vars; resolved client URL now `SUPABASE_INTERNAL_URL ?? publicUrl`.
+- `apps/web/app/s/[id]/page.tsx` — **same latent bug found this session**: the server-rendered public share page also fetched `http://localhost` from inside the container. Now uses `getServerSupabaseUrl()`.
+
+**Bugs #1/#2/#5/#8 — `scripts/install-kaban.sh`**
+- #1: `compose pull` now `--ignore-pull-failures` (kaban-web is build-only).
+- #2: JWT patcher no longer `-v`-mounts `.env`; the body rides in on `-e ENV_CONTENT`, patched file comes back on stdout (no MSYS path mangling). Patcher also writes the new `KABAN_SCHEME`.
+- #5: new Postgres bind-mount guard — bails with instructions when `docker/.env` was just regenerated over an existing data dir; `--wipe` flag (`down -v` + `rm -rf` the bind mount) is the destructive opt-in. Arg parser + `--help` added.
+- #8: stopped passing an absolute `COMPOSE_FILE` to `bootstrap.sh`.
+
+**Bugs #3/#4 — Docker build**
+- `docker/Dockerfile.web` — dropped the pre-`FROM` `ARG TARGETPLATFORM`/`BUILDPLATFORM` and all three `--platform=$TARGETPLATFORM` clauses (bare `FROM node:22-alpine` is already multi-arch); header comment rewritten.
+- `apps/web/public/.gitkeep` — committed so the runtime-stage `COPY apps/web/public` always has a source.
+
+**Bug #8 — `docker/bootstrap.sh`**
+- `cd "$HERE"` then `COMPOSE_FILE="${COMPOSE_FILE:-kaban-stack.yml}"` (relative; was `$HERE/kaban-stack.yml`).
+
+**Bug #7 + bonus — Caddy / env**
+- `docker/Caddyfile` — site address now `{$KABAN_SCHEME:https}://{$KABAN_HOST}`; `http` disables auto-HTTPS so localhost serves plain `:80` (no 308, no cert click-through).
+- `docker/docker-compose.yml` — `caddy` gets `KABAN_SCHEME: ${KABAN_SCHEME:-https}`.
+- `docker/.env.example` — added documented `KABAN_SCHEME=https`; quoted `STUDIO_DEFAULT_PROJECT` **and** `SMTP_SENDER_NAME` (both had unquoted spaces — `SMTP_SENDER_NAME` wasn't in the ADR but breaks `set -a; . .env` the same way).
+
+**Adjacencies**
+- `.github/workflows/deploy-smoke.yml` — new: brings the bundled stack up via `install-kaban.sh` on a clean Ubuntu runner and probes `/setup` for 200. Nightly + dispatch + deploy-surface-PR paths filter; 30-min cap (see ADR 0023 for why not the requested <10 min).
+- `docs/SELF_HOSTING.md` — Troubleshooting section (28P01 / `--wipe`, Git Bash quirks, localhost cert, port collisions, `compose pull`); ARM64 + TL;DR prose corrected for the dropped platform args + the localhost HTTP behaviour.
+- `docs/DECISIONS/0023-adr-0022-fix-implementation-choices.md` — records the five non-obvious implementation choices.
+- `docs/ROADMAP.md` — new checked Phase 7 row; corrected the stale `--platform=$TARGETPLATFORM` references.
+- `apps/web/.env.local` (gitignored) — rewritten from the MCP connector at session start.
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm typecheck` ✅
+- `pnpm lint` ✅ (Biome, 111 files)
+- `pnpm test` ✅ — 34 (26 `@kpu/core` + 8 `@kpu/web`: 3 a11y + 5 setup-gate)
+- `pnpm build` ✅ — bundles preserved: `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB, `/b/[id]` 197 kB, `/setup` 116 kB, `/legal/privacy` 116 kB
+- `bash -n scripts/install-kaban.sh` ✅, `bash -n docker/bootstrap.sh` ✅
+- Extracted the embedded Python patcher and ran it against a `localhost` fixture: emits `http://localhost` URLs + `KABAN_SCHEME=http`, preserves quoted/comment/untouched lines, appends missing keys. ✅
+- `set -a; . docker/.env.example; set +a` — sources clean, no `Plus: command not found` (was the bonus bug). ✅
+- **Not run**: the live `clone → install-kaban.sh → curl /setup` loop — no Docker daemon in the harness (recurring blocker). The new `deploy-smoke.yml` is the CI proxy; a real-host run is still owed.
+
+### Validation command sequence (for the next operator with a Docker host)
+
+```bash
+git clone https://github.com/dfladagermccullugh-bot/Kaban-Plus-Ultra.git
+cd Kaban-Plus-Ultra
+KABAN_HOST=localhost bash scripts/install-kaban.sh
+# installer prints: http://localhost/setup?t=<token>
+TOKEN=$(grep '^SETUP_TOKEN=' docker/.env | cut -d= -f2-)
+curl -sS -o /dev/null -w '%{http_code}\n' "http://localhost/setup?t=$TOKEN"   # expect 200
+```
+
+### ADRs added
+
+- `docs/DECISIONS/0023-adr-0022-fix-implementation-choices.md`
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **Live local-Docker validation** on a real Docker host (operator or fresh VPS `45.13.225.115`): run the command sequence above; confirm 200 + the "Claim your workspace" form renders. This was the explicit end-state goal — only the harness's missing Docker daemon blocks the final paste.
+2. Once `/setup` works locally, the long-blocked live-browser items become tractable: Lighthouse a11y ≥ 95 / perf ≥ 90 on `/`, `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`, `/legal/privacy`.
+3. Privacy/STORE_LISTING/RELEASE_NOTES sweep — still waiting on the three contact addresses under `kaban.saelik.com`.
+4. Dev-machine session: `npx cap add ios|android`, `pnpm --filter @kpu/mobile generate:assets`, populate the release-workflow secrets.
+
+### Blockers / open questions
+
+- **No Docker daemon / no browser in the harness** — blocks the final live-install paste and the Lighthouse pass. `deploy-smoke.yml` is the CI stand-in.
+- **Email addresses** for the privacy sweep still TBD (`support@`/`security@`/`privacy@` under `saelik.com` vs `kaban.saelik.com`).
+- **SUPABASE_SERVICE_ROLE_KEY** still operator-only on the hosted project.
+- **SMTP / Google OAuth** still unprovided.
+- **No native iOS / Android folders** — need `npx cap add` on a dev machine.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-15 — Live local-Docker deployment test on Windows + Git Bash — eight bugs catalogued (no code changes)
 
 - **Agent / model**: Claude (Opus 4.7)

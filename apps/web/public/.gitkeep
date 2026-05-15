@@ -1,0 +1,3 @@
+# Keeps apps/web/public/ in the repo so docker/Dockerfile.web's
+# unconditional `COPY apps/web/public` runtime stage doesn't fail on a
+# fresh checkout. Next.js serves static files from here at the web root.

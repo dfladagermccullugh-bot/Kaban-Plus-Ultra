@@ -41,3 +41,24 @@ export function getSupabaseAnonKey(): string {
 export function getSiteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 }
+
+/**
+ * Rewrite a storage URL built by a server-side Supabase client to the public
+ * origin the browser can actually reach.
+ *
+ * `getPublicUrl()` / `createSignedUrl()` string-concatenate the *client's*
+ * base origin. Server-side clients use `getServerSupabaseUrl()` —
+ * `SUPABASE_INTERNAL_URL` (`http://kong:8000`) in a bundled deploy — so a URL
+ * destined for an `<img src>` would point at an unreachable internal host.
+ * The API hop should stay internal; only the URL handed to the browser needs
+ * the public origin. No-op when `SUPABASE_INTERNAL_URL` is unset (hosted
+ * Supabase / local dev) or the URL isn't on the internal origin. See
+ * docs/DECISIONS/0024.
+ */
+export function toPublicStorageUrl(url: string): string {
+  const internal = process.env.SUPABASE_INTERNAL_URL;
+  if (!internal) return url;
+  const stripTrailingSlash = (s: string) => s.replace(/\/+$/, '');
+  const from = stripTrailingSlash(internal);
+  return url.startsWith(from) ? stripTrailingSlash(getSupabaseUrl()) + url.slice(from.length) : url;
+}

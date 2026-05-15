@@ -1,5 +1,6 @@
 'use server';
 
+import { toPublicStorageUrl } from '@/lib/env';
 import { createClient } from '@/lib/supabase/server';
 import { positionBetween } from '@kpu/core';
 import { revalidatePath } from 'next/cache';
@@ -324,7 +325,7 @@ export async function getSignedImageUrl(
       .from('card-images')
       .createSignedUrl(storagePath, expiresInSeconds);
     if (error || !data) return { ok: false, error: error?.message ?? 'Failed to sign URL.' };
-    return { ok: true, data: { url: data.signedUrl } };
+    return { ok: true, data: { url: toPublicStorageUrl(data.signedUrl) } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' };
   }

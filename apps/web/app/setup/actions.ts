@@ -1,7 +1,7 @@
 'use server';
 
 import { isAccentColor } from '@/app/profile/accent-colors';
-import { getSiteUrl } from '@/lib/env';
+import { getSiteUrl, toPublicStorageUrl } from '@/lib/env';
 import { createAdmin } from '@/lib/supabase/admin';
 import { isWorkspaceEmpty } from './setup-gate.server';
 import { checkSetupToken } from './setup-state';
@@ -98,7 +98,7 @@ export async function claimWorkspace(formData: FormData): Promise<ClaimResult> {
     const { data: pub } = admin.storage.from('avatars').getPublicUrl(path);
     const { error: avatarErr } = await admin
       .from('profiles')
-      .update({ avatar_url: pub.publicUrl })
+      .update({ avatar_url: toPublicStorageUrl(pub.publicUrl) })
       .eq('id', userId);
     if (avatarErr) return { ok: false, error: avatarErr.message };
   }

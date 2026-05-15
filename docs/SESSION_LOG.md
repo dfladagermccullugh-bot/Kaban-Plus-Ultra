@@ -4,6 +4,71 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-15 — Live local-Docker deployment test on Windows + Git Bash — eight bugs catalogued (no code changes)
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/continue-kaban-development-obZj7` (continuation of the same session; PR #28 had already merged the morning's `0009` migration work into `main` at `95e1146`)
+- **Phase**: Phase 7 closeout — live self-host validation
+
+### Goal
+
+Walk an operator through a fresh local-Docker deployment on a Windows + Docker Desktop + Git Bash host (32 GB RAM, fast CPU, plenty of disk) and confirm the `git clone → install-kaban.sh → open the browser` story works end-to-end. Catalogue every deviation from the documented one-liner.
+
+### What happened
+
+The stack does eventually run — but only after **eight distinct workarounds**, each requiring agent intervention. The test ended with `/setup` returning 404 in the browser because of bug #6 (a real Next.js + env wiring bug), at which point the operator asked for a handoff to a fresh session rather than approving a code patch.
+
+### Bugs discovered (in install order — full detail in ADR 0022)
+
+1. **`scripts/install-kaban.sh:211`** — `docker compose pull` aborts the whole script when `kaban-web:latest` isn't on a registry. Needs `--ignore-pull-failures`.
+2. **`scripts/install-kaban.sh` JWT-signing python container** — silently fails on Git Bash for Windows because MSYS mangles the `-v $ENV_FILE:/env:rw` path. Leaves `.env` full of `change-me` placeholders. Either prepend `MSYS_NO_PATHCONV=1` or rewrite the patcher to stream `.env` over stdin (no volume mount).
+3. **`docker/Dockerfile.web:17,21,33,53`** — global `ARG TARGETPLATFORM` declared before any `FROM` is not auto-populated by BuildKit; `docker compose up --build` fails with `failed to parse platform : "" is an invalid component of ""`. Fix: drop the `--platform=$TARGETPLATFORM` clauses (the base `node:22-alpine` is already a multi-arch manifest).
+4. **`apps/web/public/` directory missing** — Dockerfile line 61 unconditionally COPYs it; build fails with `not found`. Fix: commit `apps/web/public/.gitkeep`.
+5. **`scripts/install-kaban.sh` doesn't wipe Postgres bind-mount on rotation** — `docker compose down -v` only clears Docker-managed volumes, but Postgres data lives in a bind mount at `docker/supabase/upstream/docker/volumes/db/data/`. A second `up -d` with a new `POSTGRES_PASSWORD` keeps the old `supabase_admin` hash; the auth chain breaks with `FATAL 28P01 (invalid_password)`.
+6. **`apps/web/lib/env.ts:getSupabaseUrl()` ignores `SUPABASE_INTERNAL_URL`** — `kaban-stack.yml` already provides this env var pointing at `http://kong:8000` for in-network server-side calls, but the admin client (and probably middleware + server clients) reads the build-time-inlined `NEXT_PUBLIC_SUPABASE_URL` which is `http://localhost`. Server-side fetches try to reach `http://localhost/rest/v1/...` from inside the container, fail, and `/setup` returns 404. **This is the blocker that ended the test.** Runtime env overrides do NOT work — Next.js inlines `NEXT_PUBLIC_*` as literal strings at build time. Fix is one line in `admin.ts` (or `env.ts`): prefer `SUPABASE_INTERNAL_URL` when set.
+7. **`docker/Caddyfile`** — `localhost` site forces HTTPS via 308 redirect, so every browser hit requires clicking through a self-signed cert warning. For `KABAN_HOST=localhost` we should serve plain HTTP on port 80.
+8. **`docker/bootstrap.sh`** — uses `COMPOSE_FILE="$PWD/kaban-stack.yml"`. Under `MSYS_NO_PATHCONV=1` on Git Bash, the `/c/Users/...` path is passed unmodified to the docker daemon which prepends `C:` → `C:\c\Users\...`. Use a relative path by default.
+
+Bonus: **`.env.example:93`** has unquoted spaces (`STUDIO_DEFAULT_PROJECT=Kaban Plus Ultra`), producing `bash: Plus: command not found` noise on every `set -a; . ./.env; set +a`. Wrap in quotes.
+
+### Changed
+
+- `docs/DECISIONS/0022-local-deployment-bugs-from-live-test.md` — new ADR documenting all eight bugs with fix recommendations + a proposed end-state workflow.
+- `docs/SESSION_LOG.md` — this entry.
+- `CLAUDE.md` — "Latest tip" updated to flag PR #28 merge and the pending Phase 7 deployment-bug bundle.
+
+**No code changes** in this session — per operator's "do not alter code unless specified" directive. The next session's job is to land the eight fixes as one focused commit.
+
+### Verified
+
+- Live empirical evidence for each bug (commands run + outputs captured in the chat transcript).
+- Bugs #1, #3, #4, #5, #8 were worked around in real time and produced a running stack (15 containers, 12 healthy; storage + studio unhealthy but non-blocking; db-backup restarting).
+- Bug #6 was diagnosed but not bypassed — the test ended with `curl -k https://localhost/setup?t=… → HTTP 404` confirmed against both Caddy and the `kaban-web` container directly.
+- Migrations 0001 → 0009 apply cleanly against a fresh `supabase/postgres:15.1.1.78` cluster.
+- The buildx workaround command (`docker buildx build --platform linux/amd64 --build-arg TARGETPLATFORM=linux/amd64 --build-arg BUILDPLATFORM=linux/amd64 …`) reproducibly builds `kaban-web:latest` on Docker Desktop.
+
+### Decisions taken this session
+
+- **ADR 0022** — bundle all eight fixes into a single focused next session, framed against a target end-state where `git clone → bash scripts/install-kaban.sh` runs without intervention on any Docker-Engine ≥ 24 / Compose ≥ 2.20 host.
+- Held off on patching `apps/web/lib/supabase/admin.ts` (bug #6) live during the test, even though the operator was unblocked by it, because (a) the code-change directive was explicit and (b) a half-fixed deployment story is worse than a fully-documented bug list for the next session.
+
+### Delegations
+
+None.
+
+### Next up — for the new session
+
+**Single goal:** land bugs 1–8 from ADR 0022 as one focused commit and re-run the live local-Docker test to confirm the new workflow is `clone → script → browser`. Suggested order: #6 first (unblocks the visual test loop), then #1–#5/#7/#8 in any order. End-state validation: paste of `curl -sS -o /dev/null -w "%{http_code}\n" http://localhost/setup?t=…` returning 200, plus a screenshot description of the wizard form rendering.
+
+### Blockers / open questions
+
+- **Operator domain choice still open** for the privacy/STORE_LISTING/RELEASE_NOTES sweep — canonical domain `kaban.saelik.com` is confirmed, but `support@` / `security@` / `privacy@` hostnames still TBD.
+- **SUPABASE_SERVICE_ROLE_KEY** still operator-only on the hosted project.
+- **SMTP / Google OAuth** still unprovided.
+- **No native iOS / Android folders** — still needs a dev machine.
+
+---
+
 ## 2026-05-15 — Internal SECURITY DEFINER functions moved to a `private` schema (migration 0009); advisor lints 8 → 2
 
 - **Agent / model**: Claude (Opus 4.7)

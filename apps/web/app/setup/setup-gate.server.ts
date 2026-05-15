@@ -38,6 +38,37 @@ export async function isWorkspaceEmpty(): Promise<boolean> {
   return (count ?? 0) === 0;
 }
 
+// TEMP TRIAL DIAGNOSTIC — wrap fetch to capture exactly what supabase-js
+// sends/receives during the real probe. Remove before finalizing.
+async function isWorkspaceEmptySpied(): Promise<boolean> {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+    const url = input instanceof Request ? input.url : String(input);
+    try {
+      const res = await orig(input as RequestInfo, init);
+      console.error(
+        `[setup-gate][spy] ${method} ${url} -> ${res.status} ${res.statusText} cr=${res.headers.get(
+          'content-range',
+        )} ct=${res.headers.get('content-type')}`,
+      );
+      return res;
+    } catch (e) {
+      console.error(`[setup-gate][spy] ${method} ${url} -> THREW`, {
+        name: (e as Error)?.name,
+        message: (e as Error)?.message,
+        cause: (e as { cause?: unknown })?.cause,
+      });
+      throw e;
+    }
+  }) as typeof fetch;
+  try {
+    return await isWorkspaceEmpty();
+  } finally {
+    globalThis.fetch = orig;
+  }
+}
+
 export async function setupGate(suppliedToken: string | undefined): Promise<SetupGate> {
   const tokenCheck = checkSetupToken(suppliedToken);
   if (!tokenCheck.ok) {
@@ -46,7 +77,7 @@ export async function setupGate(suppliedToken: string | undefined): Promise<Setu
     return tokenCheck;
   }
   try {
-    const empty = await isWorkspaceEmpty();
+    const empty = await isWorkspaceEmptySpied();
     if (!empty) return { ok: false, reason: 'already-claimed' };
   } catch (err) {
     const e = err as Record<string, unknown> & { stack?: string; cause?: unknown };

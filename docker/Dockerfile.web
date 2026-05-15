@@ -9,16 +9,16 @@
 #
 # Multi-arch (linux/amd64 + linux/arm64) build via buildx — see
 # scripts/build-multiarch.sh and docs/SELF_HOSTING.md → "ARM64 / Raspberry
-# Pi". `node:22-alpine` is itself a multi-arch manifest, so `TARGETPLATFORM`
-# picks the right native base; pnpm + Next pull architecture-appropriate
-# prebuilt binaries (sharp, esbuild) on install when `TARGETPLATFORM`
-# matches the build host or buildx is wired up with QEMU.
-
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
+# Pi". `node:22-alpine` is itself a multi-arch manifest, so a bare `FROM`
+# resolves to the host arch under the default builder and to each requested
+# `--platform` under buildx — no explicit `--platform=$TARGETPLATFORM` needed
+# (a pre-FROM global ARG is empty under `docker compose up --build` and the
+# platform parser then rejects ""). pnpm + Next pull architecture-appropriate
+# prebuilt binaries (sharp, esbuild) on install for whichever arch the base
+# resolved to.
 
 # ── 1. dependencies ─────────────────────────────────────────────────────────
-FROM --platform=$TARGETPLATFORM node:22-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
@@ -30,7 +30,7 @@ COPY packages/ui/package.json         packages/ui/package.json
 RUN pnpm install --frozen-lockfile
 
 # ── 2. build ────────────────────────────────────────────────────────────────
-FROM --platform=$TARGETPLATFORM node:22-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY --from=deps /repo/node_modules ./node_modules
@@ -50,7 +50,7 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
 RUN pnpm --filter @kpu/web build
 
 # ── 3. runtime ──────────────────────────────────────────────────────────────
-FROM --platform=$TARGETPLATFORM node:22-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \

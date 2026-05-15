@@ -14,7 +14,14 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 
-COMPOSE_FILE="${COMPOSE_FILE:-$HERE/kaban-stack.yml}"
+# Run from this script's own directory so the default COMPOSE_FILE is a
+# bare relative path. An absolute /c/Users/... path gets mangled when it
+# reaches the docker daemon on Git Bash for Windows (it prepends a drive
+# letter → C:\c\Users\...). A relative path sidesteps that entirely.
+# Override COMPOSE_FILE only if your shell doesn't rewrite host paths.
+cd "$HERE"
+
+COMPOSE_FILE="${COMPOSE_FILE:-kaban-stack.yml}"
 DB_SERVICE="${DB_SERVICE:-db}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-$REPO_ROOT/supabase/migrations}"
 MARKER="${MARKER:-$HERE/.bootstrap-done}"

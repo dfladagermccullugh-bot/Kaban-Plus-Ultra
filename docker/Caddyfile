@@ -1,10 +1,14 @@
 # Auto-HTTPS reverse proxy in front of kaban-web. Set KABAN_HOST in `.env`
-# to your real hostname; Caddy will provision a Let's Encrypt cert for it.
+# to your real hostname; with KABAN_SCHEME=https (the default) Caddy
+# provisions a Let's Encrypt cert for it.
 #
-# For a local-only dry run, leave KABAN_HOST=localhost; Caddy serves HTTPS
-# with a self-signed cert and accepts plain HTTP on :80.
+# For a local-only run, install-kaban.sh sets KABAN_SCHEME=http when
+# KABAN_HOST is localhost/127.0.0.1. An explicit `http://` site address
+# disables automatic HTTPS, so Caddy serves plain HTTP on :80 with no
+# 308 → https redirect and no self-signed-cert click-through. See
+# docs/DECISIONS/0022.
 
-{$KABAN_HOST} {
+{$KABAN_SCHEME:https}://{$KABAN_HOST} {
 	encode zstd gzip
 	@hostHealth path /
 	reverse_proxy web:3000

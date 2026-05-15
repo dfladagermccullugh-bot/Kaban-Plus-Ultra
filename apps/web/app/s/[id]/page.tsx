@@ -1,4 +1,4 @@
-import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/env';
+import { getServerSupabaseUrl, getSupabaseAnonKey } from '@/lib/env';
 import { sortByPosition } from '@kpu/core';
 import type { Database } from '@kpu/db';
 import { createClient } from '@supabase/supabase-js';
@@ -24,7 +24,7 @@ export default async function SharedBoardPage({ params, searchParams }: Params) 
   const { t } = await searchParams;
   if (!t) notFound();
 
-  const supabase = createClient<Database>(getSupabaseUrl(), getSupabaseAnonKey(), {
+  const supabase = createClient<Database>(getServerSupabaseUrl(), getSupabaseAnonKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { 'x-share-token': t } },
   });

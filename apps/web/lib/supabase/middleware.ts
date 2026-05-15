@@ -25,9 +25,13 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Graceful: if Supabase env isn't configured locally, skip auth entirely
   // so the marketing pages still render. Protected pages have their own
   // signed-out redirect.
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return response;
+  if (!publicUrl || !anonKey) return response;
+  // Server-side hop: prefer the in-network gateway when the self-host stack
+  // provides it, so middleware doesn't hairpin out through Caddy. See
+  // docs/DECISIONS/0022.
+  const url = process.env.SUPABASE_INTERNAL_URL ?? publicUrl;
 
   const supabase = createServerClient<Database>(url, anonKey, {
     cookies: {

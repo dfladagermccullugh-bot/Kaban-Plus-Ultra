@@ -10,6 +10,13 @@
 #
 #   ./scripts/install-kaban.sh
 #
+# Flags:
+#   --wipe   Tear the stack down (`down -v`) and delete the Postgres
+#            bind-mount before bringing it back up. Use this when you've
+#            rotated docker/.env (new POSTGRES_PASSWORD) — otherwise the
+#            old cluster keeps the old password and auth breaks with
+#            'FATAL 28P01'. DESTROYS all local Supabase data.
+#
 # What this script does, in order:
 #   1. Sanity-check the host (docker, docker compose v2.20+, curl, openssl, tar).
 #   2. Clone (or `git pull` in place) this repo into $KABAN_DIR
@@ -47,6 +54,22 @@ REPO_URL="${KABAN_REPO_URL:-https://github.com/dfladagermccullugh-bot/kaban-plus
 REPO_REF="${KABAN_REPO_REF:-main}"
 KABAN_DIR="${KABAN_DIR:-$HOME/kaban-plus-ultra}"
 KABAN_HOST="${KABAN_HOST:-localhost}"
+
+# Caddy serves localhost over plain HTTP (no cert click-through); a real
+# DNS name gets auto-HTTPS via Let's Encrypt.
+case "$KABAN_HOST" in
+  localhost|127.0.0.1) KABAN_SCHEME="http" ;;
+  *)                   KABAN_SCHEME="https" ;;
+esac
+
+wipe=0
+for arg in "$@"; do
+  case "$arg" in
+    --wipe) wipe=1 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    *) die "unknown argument: $arg (try --help)" ;;
+  esac
+done
 
 # ---------- 1. sanity ----------
 log "checking prerequisites …"
@@ -113,6 +136,8 @@ fi
 ENV_FILE="$KABAN_DIR/docker/.env"
 ENV_EXAMPLE="$KABAN_DIR/docker/.env.example"
 
+if [ -f "$ENV_FILE" ]; then env_existed=1; else env_existed=0; fi
+
 if [ ! -f "$ENV_FILE" ]; then
   log "generating $ENV_FILE …"
   cp "$ENV_EXAMPLE" "$ENV_FILE"
@@ -126,16 +151,23 @@ if [ ! -f "$ENV_FILE" ]; then
   # placeholder in $ENV_FILE. All of this runs inside a single throwaway
   # python:3.12-alpine container — the installer's only language dep is
   # docker itself.
+  #
+  # The unpatched .env goes in via an env var and the patched file comes
+  # back on stdout. NO volume mount: Git Bash / MSYS rewrites `-v` host
+  # paths (/c/Users/… → a bogus mount), which silently left .env full of
+  # `change-me` placeholders. (stdin is already taken by the heredoc that
+  # feeds `python -` its program, so the .env body rides an env var.)
   log "signing JWTs + writing $ENV_FILE (containerised) …"
-  docker run --rm -i \
+  patched_env="$(docker run --rm -i \
     -e JWT_SECRET="$JWT_SECRET" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e DASHBOARD_PASSWORD="$DASHBOARD_PASSWORD" \
     -e SETUP_TOKEN="$SETUP_TOKEN" \
     -e KABAN_HOST="$KABAN_HOST" \
-    -v "$ENV_FILE:/env:rw" \
+    -e KABAN_SCHEME="$KABAN_SCHEME" \
+    -e ENV_CONTENT="$(cat "$ENV_FILE")" \
     python:3.12-alpine python - <<'PY'
-import base64, hmac, hashlib, json, os, re, time, pathlib
+import base64, hmac, hashlib, json, os, re, sys, time
 
 secret = os.environ["JWT_SECRET"].encode()
 def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
@@ -149,7 +181,8 @@ def jwt(role):
 anon = jwt("anon")
 service = jwt("service_role")
 host = os.environ["KABAN_HOST"]
-public_url = f"https://{host}" if host not in ("localhost", "127.0.0.1") else f"http://{host}"
+scheme = os.environ.get("KABAN_SCHEME") or ("http" if host in ("localhost", "127.0.0.1") else "https")
+public_url = f"{scheme}://{host}"
 
 patches = {
     "POSTGRES_PASSWORD":            os.environ["POSTGRES_PASSWORD"],
@@ -161,6 +194,7 @@ patches = {
     "API_EXTERNAL_URL":             public_url,
     "SUPABASE_PUBLIC_URL":          public_url,
     "KABAN_HOST":                   host,
+    "KABAN_SCHEME":                 scheme,
     "NEXT_PUBLIC_SITE_URL":         public_url,
     "NEXT_PUBLIC_SUPABASE_URL":     public_url,
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": anon,
@@ -168,8 +202,7 @@ patches = {
     "SETUP_TOKEN":                  os.environ["SETUP_TOKEN"],
 }
 
-path = pathlib.Path("/env")
-lines = path.read_text().splitlines()
+lines = os.environ["ENV_CONTENT"].splitlines()
 seen, out = set(), []
 for line in lines:
     m = re.match(r'^([A-Z_][A-Z0-9_]*)=', line)
@@ -182,8 +215,10 @@ for line in lines:
 for k, v in patches.items():
     if k not in seen:
         out.append(f"{k}={v}")
-path.write_text("\n".join(out) + "\n")
+sys.stdout.write("\n".join(out) + "\n")
 PY
+)"
+  printf '%s\n' "$patched_env" > "$ENV_FILE"
 
   log "  POSTGRES_PASSWORD / JWT_SECRET / DASHBOARD_PASSWORD / SETUP_TOKEN generated. Back up $ENV_FILE."
 else
@@ -194,10 +229,43 @@ fi
 log "fetching pinned Supabase upstream …"
 bash "$KABAN_DIR/docker/supabase/fetch.sh"
 
+# ---------- 5b. Postgres bind-mount guard ----------
+# The upstream Supabase compose bind-mounts PGDATA to this host path.
+# `docker compose down -v` only removes Docker-managed volumes — this dir
+# survives. If we just generated a fresh docker/.env (new random
+# POSTGRES_PASSWORD) on top of an existing cluster, Postgres skips
+# initdb and keeps the OLD password while every other service reads the
+# NEW one → the whole auth chain dies with `FATAL 28P01`. Bail by
+# default; --wipe is the explicit, destructive opt-in.
+PG_DATA_DIR="$KABAN_DIR/docker/supabase/upstream/docker/volumes/db/data"
+if [ "$wipe" = 1 ]; then
+  log "--wipe: tearing down the stack + deleting the Postgres bind-mount …"
+  if [ -f "$KABAN_DIR/docker/.env" ]; then
+    ( cd "$KABAN_DIR/docker" \
+      && docker compose --env-file ./.env -f kaban-stack.yml down -v ) \
+      2>/dev/null || true
+  fi
+  rm -rf "$PG_DATA_DIR"
+elif [ "$env_existed" = 0 ] && [ -d "$PG_DATA_DIR" ] \
+     && [ -n "$(ls -A "$PG_DATA_DIR" 2>/dev/null)" ]; then
+  die "Found an existing Postgres data dir:
+    $PG_DATA_DIR
+  but docker/.env was just regenerated with a fresh POSTGRES_PASSWORD.
+  Postgres will keep the OLD password baked into that data dir while every
+  other service uses the NEW one — auth fails with 'FATAL 28P01'.
+
+  Start fresh (DESTROYS all local Supabase data + uploads):
+    bash scripts/install-kaban.sh --wipe
+  Or restore the docker/.env that matches the existing data dir and re-run.
+  See docs/SELF_HOSTING.md → Troubleshooting."
+fi
+
 # ---------- 6/7. pull + up ----------
 cd "$KABAN_DIR/docker"
 log "pulling images (this is the slow step) …"
-docker compose --env-file ./.env -f kaban-stack.yml pull
+# kaban-web is built locally (no registry), so `pull` always fails on it.
+# --ignore-pull-failures lets the rest pull and leaves the build to `up`.
+docker compose --env-file ./.env -f kaban-stack.yml pull --ignore-pull-failures
 
 log "starting stack …"
 docker compose --env-file ./.env -f kaban-stack.yml up -d --build
@@ -205,8 +273,10 @@ docker compose --env-file ./.env -f kaban-stack.yml up -d --build
 # ---------- 8. migrations ----------
 log "applying Kaban migrations …"
 set -a; . "$ENV_FILE"; set +a
-COMPOSE_FILE="$KABAN_DIR/docker/kaban-stack.yml" \
-  bash "$KABAN_DIR/docker/bootstrap.sh"
+# bootstrap.sh cd's to docker/ and defaults COMPOSE_FILE to the relative
+# `kaban-stack.yml` — do NOT pass an absolute path here (Git Bash mangles
+# /c/Users/… when it reaches the docker daemon). See docs/DECISIONS/0022.
+bash "$KABAN_DIR/docker/bootstrap.sh"
 
 # ---------- 9. done ----------
 PUBLIC_URL=$(grep ^NEXT_PUBLIC_SITE_URL= "$ENV_FILE" | cut -d= -f2-)

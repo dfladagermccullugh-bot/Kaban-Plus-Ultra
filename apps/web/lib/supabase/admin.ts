@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getSupabaseUrl } from '@/lib/env';
+import { getServerSupabaseUrl } from '@/lib/env';
 import { type KpuClient, createAdminClient } from '@kpu/db';
 
 /**
@@ -14,7 +14,7 @@ import { type KpuClient, createAdminClient } from '@kpu/db';
  * authorization story.
  */
 export function createAdmin(): KpuClient {
-  const url = getSupabaseUrl();
+  const url = getServerSupabaseUrl();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error(

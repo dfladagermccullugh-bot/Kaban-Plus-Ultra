@@ -4,11 +4,12 @@
 # Verifies a connected Supabase project against the invariants Kaban relies on:
 #   1. /setup gate state — `profiles` is empty (gate open) vs. populated (closed).
 #   2. Trigger-only functions (`on_auth_user_created`, `on_auth_user_email_updated`)
-#      are NOT callable as `/rest/v1/rpc/*` from anon — PostgREST returns 403
-#      "permission denied for function" once EXECUTE is revoked (see migration
-#      0007).
-#   3. Share-token RPCs (`rotate_share_token`, `revoke_share_token`) are NOT
-#      callable from anon (authenticated bearer required).
+#      and RLS helpers (`has_board_access`, `has_share_access`) live in the
+#      `private` schema (migration 0009) so PostgREST returns 404 when asked
+#      to RPC them in `public` — they are not in any exposed schema.
+#   3. Share-token RPCs (`rotate_share_token`, `revoke_share_token`) stay in
+#      `public` but EXECUTE is revoked from anon (authenticated bearer
+#      required) — PostgREST returns 403 "permission denied for function".
 #
 # Reads `apps/web/.env.local`. Requires NEXT_PUBLIC_SUPABASE_URL,
 # NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY. The service-role
@@ -109,15 +110,17 @@ else
   echo "INFO  setup-gate state  (profiles=$profile_count → /setup gate CLOSED — expected once an admin has claimed)"
 fi
 
-# 2. Anon must NOT be able to RPC the trigger functions. PostgREST returns 403
-# "permission denied for function" once EXECUTE is revoked from anon. A 200
-# would be a hard regression.
-for fn in on_auth_user_created on_auth_user_email_updated; do
-  probe "anon RPC denied: $fn" "403" anon_rpc_status "$fn"
+# 2. Trigger functions + RLS helpers were moved to the `private` schema in
+# migration 0009. PostgREST only exposes `public` (default db.api.schemas), so
+# requesting them via `/rest/v1/rpc/<name>` returns 404 — they live outside
+# the API surface entirely. A 200 or 403 would be a regression.
+for fn in on_auth_user_created on_auth_user_email_updated has_board_access has_share_access; do
+  probe "private RPC unreachable: $fn" "404" anon_rpc_status "$fn"
 done
 
-# 3. Anon must NOT be able to RPC the share-token RPCs (authenticated bearer
-# required). Same 403 expectation as the trigger functions.
+# 3. Share-token RPCs stay in `public` (server actions call them via the
+# Supabase JS client), but EXECUTE is revoked from anon, so PostgREST returns
+# 403 "permission denied for function". A 200 would be a hard regression.
 for fn in rotate_share_token revoke_share_token; do
   probe "anon RPC denied: $fn" "403" anon_rpc_status "$fn"
 done

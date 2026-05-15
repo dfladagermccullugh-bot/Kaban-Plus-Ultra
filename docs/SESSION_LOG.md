@@ -4,6 +4,90 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-15 — Internal SECURITY DEFINER functions moved to a `private` schema (migration 0009); advisor lints 8 → 2
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/continue-kaban-development-obZj7` (session-assigned; stacks on `main` at `ac11c0a` — merge of PR #27 from the previous session's `claude/kaban-phase-8-continuation-enJqD`)
+- **Phase**: Phase 7 hardening (close the deferred advisor lints from ADR 0020)
+
+### Goal
+
+Close the six Supabase advisor lints that ADR 0020 deferred — by moving the four internal `SECURITY DEFINER` helpers + trigger functions into a non-API `private` schema and flipping the two share-token RPCs to `SECURITY INVOKER` — so the live advisor only carries the two environmental warnings (`extension_in_public` for moddatetime, `public_bucket_allows_listing` for avatars).
+
+### Changed
+
+**Supabase migration** (applied via MCP `apply_migration`)
+- `supabase/migrations/0009_private_schema_for_internal_functions.sql` — single-transaction migration that:
+  1. Creates schema `private`; `revoke all … from public` then `grant usage` to `anon`, `authenticated`, `service_role`, `supabase_auth_admin` (USAGE is the minimum required for RLS expressions to resolve the function name; PostgREST exposure is governed separately by `db.api.schemas` and stays `public`-only).
+  2. Drops every RLS policy in `public.*` that referenced the helpers (`boards`, `board_collaborators`, `rows`, `columns`, `cards`, `labels`, `card_labels`, `images`, `audit_events`) plus the two `storage.objects` policies on `card-images`.
+  3. Drops `public.has_board_access(uuid, text)` + `public.has_share_access(uuid)` and recreates them in `private` (still `SECURITY DEFINER`, still `set search_path = public`). EXECUTE granted to `anon`, `authenticated`, `service_role`.
+  4. Recreates all 17 `public.*` RLS policies + 2 `storage.objects` policies with `private.has_*_access(…)` qualification.
+  5. Drops both `auth.users` triggers + `public.on_auth_user_*()`; recreates the functions in `private` (verbatim bodies); regrants EXECUTE to `supabase_auth_admin` only; recreates `trg_auth_user_created` + `trg_auth_user_email_updated` calling the new `private.*` locations.
+  6. Drops `public.rotate_share_token(uuid)` + `public.revoke_share_token(uuid)`; recreates them with the identical body but `SECURITY INVOKER`. The owner-check `if not exists (… and owner_id = auth.uid())` still runs; the `update boards` runs through the `boards_update` RLS policy, which independently allows `owner_id = auth.uid()`. EXECUTE re-granted to `authenticated` + `service_role`; revoked from `anon` + `public`.
+
+**`scripts/smoke-supabase.sh`**
+- Header updated to describe the new layout.
+- The trigger-function loop now also probes `has_board_access` + `has_share_access`, and the expected status flips from `403` (function-in-public, EXECUTE revoked) to `404` (function-not-in-any-exposed-schema). Share-token probes still expect `403`.
+
+**ADR**
+- `docs/DECISIONS/0021-move-internal-functions-to-private-schema.md` — captures the move-to-private + flip-to-INVOKER design, the alternatives rejected (notably a `public` thin-wrapper around a `private` DEFINER body; recursive RLS under INVOKER for the helpers), and the consequence that migrations `0007` + `0008` are now no-ops against the post-`0009` state but stay in the audit trail for idempotency.
+
+**Docs**
+- `docs/ROADMAP.md` — Phase 7 header bumped to "9 migrations applied"; new checked Phase 7 row summarises the 0009 work + drop to 2 advisor lints.
+- `docs/SECURITY.md` — line 49 now refers to `private.has_board_access` with an ADR 0021 pointer.
+- `CLAUDE.md` — "Previous tips" extended with `claude/kaban-phase-8-continuation-enJqD` (PR #27); "Latest tip" rewritten to summarise this session, capture the operator-confirmed canonical domain (`kaban.saelik.com`, VPS `45.13.225.115`), and flag the deferred privacy-sweep on email-address confirmation.
+
+**`apps/web/.env.local`** (local-only, gitignored)
+- Rewritten at session start from the MCP connector: URL + legacy anon JWT for `xqdhpxfgrckjzzbenivp` + `NEXT_PUBLIC_SITE_URL=http://localhost:3000` + `SETUP_TOKEN=dev-setup-token-change-me` (no service-role key — MCP doesn't expose it).
+
+### Verified
+
+- `pnpm install --frozen-lockfile` ✅
+- `pnpm lint` ✅
+- `pnpm typecheck` ✅
+- `pnpm test` ✅ — 34 tests (26 `@kpu/core` + 8 `@kpu/web`: 3 a11y + 5 setup-gate)
+- `pnpm build` ✅ — bundles preserved (`/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB, `/b/[id]` 197 kB, `/setup` 116 kB, `/legal/privacy` 116 kB)
+- `bash -n scripts/smoke-supabase.sh` ✅
+- Supabase advisor (`get_advisors security`) re-run: **8 → 2 lints**. Closed: 4 on `has_*_access` (anon + authenticated DEFINER-reachable) + 2 on `rotate/revoke_share_token` (authenticated DEFINER-reachable). Remaining: `extension_in_public` (moddatetime) + `public_bucket_allows_listing` (avatars) — both environmental.
+- Direct ACL verification via MCP `execute_sql`:
+  - `private.has_board_access(uuid, text)` EXECUTE → `anon`/`authenticated`/`service_role` = true.
+  - `private.on_auth_user_created()` EXECUTE → `supabase_auth_admin` = true; `anon` = false.
+  - `public.rotate_share_token(uuid)` EXECUTE → `authenticated` = true; `anon` = false; `prosecdef` = false (INVOKER).
+- `pg_trigger` confirms `trg_auth_user_created` + `trg_auth_user_email_updated` on `auth.users` now point at `private.on_auth_user_*`.
+- `pg_policies` confirms 19 policies recreated (17 `public.*` + 2 `storage.objects`).
+- `set local role anon; select private.has_board_access('00000000-…'::uuid, 'viewer')` → returns `false` without permission error (helper is callable through the RLS expression path).
+
+### Decisions taken this session
+
+- **ADR 0021** — move four internal DEFINER functions to `private` (clears the API-exposure advisor lints by removing the functions from PostgREST's view) and flip the two share-token RPCs to `SECURITY INVOKER` (since RLS already enforces ownership). The remaining accepted lints are now just the two environmental ones (moddatetime in `public`, broad SELECT on the avatars bucket); both are managed-Postgres / product decisions and stay out of scope.
+- Did **not** take the privacy/STORE_LISTING/RELEASE_NOTES sweep this session — operator confirmed canonical domain (`kaban.saelik.com`) but the three contact addresses (`support@`, `security@`, `privacy@`) still need their final hostnames (`@kaban.saelik.com` vs `@saelik.com`) before the sweep can land. Logged on the "Next up" list.
+
+### Delegations
+
+None.
+
+### Next up
+
+1. Privacy page sign-off pass — operator confirms canonical address scheme (likely `support@`, `security@`, `privacy@` under either `saelik.com` or `kaban.saelik.com`), then sweep `/legal/privacy` (strip the "stub status" banner), `docs/STORE_LISTING.md`, and `docs/RELEASE_NOTES_1.0.md` in the same pass. Canonical domain `kaban.saelik.com` is confirmed; only the addresses remain.
+2. End-to-end smoke against the connected Supabase — operator runs `bash scripts/smoke-supabase.sh` from a dev machine (needs service-role key); now probes 404 for the relocated functions + 403 for the share-token RPCs.
+3. Lighthouse a11y ≥ 95 / perf ≥ 90 live verification on `/`, `/sign-in`, `/setup`, `/boards`, `/b/[id]`, `/s/[id]`, `/legal/privacy` (still blocked on a real browser).
+4. End-to-end fresh-VPS dry run of `install-kaban.sh` on `45.13.225.115` (blocked on a Docker host outside the harness; A record `kaban.saelik.com → 45.13.225.115` exists per operator).
+5. Dev-machine session: `npx cap add ios|android`, `pnpm --filter @kpu/mobile generate:assets`, drop the GitHub Actions secrets in, dispatch the two release workflows.
+6. Once the first TestFlight / Play upload succeeds, flip the two release workflows from `workflow_dispatch`-only to also fire on `release.published`.
+7. (Optional micro-polish) The advisor still flags `extension_in_public` for `moddatetime` — Supabase managed Postgres provisions it in `public` at cluster init; moving it requires a one-off `alter extension … set schema extensions` which is harmless to do but outside the security model's blast radius. Defer unless we revisit cosmetic warnings.
+
+### Blockers / open questions
+
+- **Email addresses** for the privacy sweep — operator gave the domain but not the three role addresses. Awaiting confirmation before sweeping `/legal/privacy`, `STORE_LISTING.md`, `RELEASE_NOTES_1.0.md`.
+- **`SUPABASE_SERVICE_ROLE_KEY`** still operator-only. Asked-before-using gate stands for invite-by-email / audit-events / `/setup` completion / auth admin API.
+- **SMTP / Google OAuth** still unprovided; `/setup` keeps the inline magic-link path for the operator's first claim.
+- **No native iOS / Android folders** — `apps/mobile/{ios,android}/` scaffolds need `npx cap add` on a dev machine.
+- **GitHub Actions release secrets** not yet populated (full list in the 2026-05-14 entry below).
+- **No Docker daemon / no browser in the harness** — same recurring blockers for the install-kaban dry run and the Lighthouse pass.
+- **Tailwind v4 beta** still pinned at `4.0.0-beta.7`.
+
+---
+
 ## 2026-05-14 — Supabase RPC grants tightened (migrations 0007 + 0008) + headless smoke script
 
 - **Agent / model**: Claude (Opus 4.7)

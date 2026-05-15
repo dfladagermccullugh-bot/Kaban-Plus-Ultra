@@ -46,7 +46,7 @@ Lives in Edge Function `functions/upload-image`:
 - Strip EXIF.
 - Compute blurhash (server-side).
 - Insert `images` row, return a **signed URL** with 7-day expiry.
-- Storage path scoped: `images/{board_id}/{uuid}.{ext}` — RLS on the bucket checks `has_board_access(board_id, 'editor')`.
+- Storage path scoped: `images/{board_id}/{uuid}.{ext}` — RLS on the bucket checks `private.has_board_access(board_id, 'editor')` (helper lives in the unexposed `private` schema; see ADR 0021).
 
 ## Rate limits
 

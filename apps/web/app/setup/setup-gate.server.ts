@@ -14,11 +14,16 @@ export async function isWorkspaceEmpty(): Promise<boolean> {
 
 export async function setupGate(suppliedToken: string | undefined): Promise<SetupGate> {
   const tokenCheck = checkSetupToken(suppliedToken);
-  if (!tokenCheck.ok) return tokenCheck;
+  if (!tokenCheck.ok) {
+    // A misconfigured self-host otherwise gets an undebuggable silent 404.
+    console.error(`[setup-gate] denied: token check = ${tokenCheck.reason}`);
+    return tokenCheck;
+  }
   try {
     const empty = await isWorkspaceEmpty();
     if (!empty) return { ok: false, reason: 'already-claimed' };
-  } catch {
+  } catch (err) {
+    console.error('[setup-gate] denied: workspace-empty probe threw —', err);
     return { ok: false, reason: 'env' };
   }
   return { ok: true };

@@ -20,6 +20,7 @@ on:
       - 'docker/**'
       - 'apps/web/lib/env.ts'
       - 'apps/web/lib/supabase/**'
+      - 'apps/web/app/setup/**'
       - '.github/workflows/deploy-smoke.yml'
 
 concurrency:

@@ -4,6 +4,63 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-15 — ADR-0022 re-audit: fixed two latent storage-URL in-container-localhost bugs the fix unmasked
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-plus-ultra-dev-QkBJ6` (harness-assigned; already contains `0c5290c` — the eight ADR-0022 fixes — via the PR #30 merge at `d5663a0`, so correctly stacked, no rebase needed)
+- **Phase**: Phase 7 closeout — re-audit the ADR-0022 commit for remaining in-container-localhost bugs (task path (c): live Docker test not yet run, privacy sweep parked by the user)
+
+### Goal
+
+Re-audit `0c5290c` for any latent in-container-localhost bug the ADR-0022 fix left or unmasked; fix what's found without inventing scope.
+
+### Changed
+
+**Latent bug found — server-built storage URLs leak the internal origin**
+The ADR-0022 fix correctly pointed server-side Supabase clients at `SUPABASE_INTERNAL_URL` (`http://kong:8000`). storage-js `getPublicUrl()` / `createSignedUrl()` string-concatenate the *client* origin, so in a bundled deploy every server-built storage URL started with `http://kong:8000` — unreachable from the browser. ADR 0023 §2 enumerated four *API* call sites; it did not consider storage-URL construction. Two real, browser-facing sites affected (bundled self-host only):
+
+- `apps/web/lib/env.ts` — new `toPublicStorageUrl()`: no-op when `SUPABASE_INTERNAL_URL` unset or URL not on the internal origin; else swaps the internal-origin prefix for the public `NEXT_PUBLIC_SUPABASE_URL` (trailing-slash tolerant).
+- `apps/web/app/setup/actions.ts` — first-run avatar `getPublicUrl().publicUrl` wrapped before it's persisted to `profiles.avatar_url` (was rendered as a broken `<img>`).
+- `apps/web/app/(app)/b/[id]/actions.ts` — `getSignedImageUrl` return wrapped (consumed by `cover-image.tsx` + `card-editor-modal.tsx`).
+- `apps/web/tests/public-storage-url.test.ts` — new: 5 cases (no-op, public rewrite, signed-URL query preservation, already-public, trailing slash). Per-push regression guard; deploy-smoke stays the heavy E2E proxy (ADR 0023 §5).
+- `.github/workflows/deploy-smoke.yml` — PR paths filter now also fires on `apps/web/app/setup/**` (the literal `/setup` surface it probes, previously uncovered).
+- `docs/DECISIONS/0024-server-storage-urls-must-use-public-origin.md` — new ADR.
+- `docs/ROADMAP.md` — new checked Phase 7 row.
+
+**Re-confirmed correct (no change):** the four ADR 0023 §2 server API call sites (`admin.ts`, `server.ts`, `lib/supabase/middleware.ts`, `app/s/[id]/page.tsx`) all route through `getServerSupabaseUrl()`; `browser.ts` correctly stays on the public origin; `getSiteUrl()` is browser-facing by design (redirect/share links — public URL is correct); `middleware.ts` graceful pass-through unchanged; deploy-smoke service names (`web`/`caddy`/`kong`/`db`) are correct (`kaban-web` is the *image*, not the service).
+
+### Verified
+
+- Static audit complete (grep of every `getSupabaseUrl`/`getServerSupabaseUrl`/`NEXT_PUBLIC_SUPABASE_URL`/`localhost`/`getPublicUrl`/`createSignedUrl`/storage call site).
+- `pnpm install --frozen-lockfile` ✅ (registry reachable in this container)
+- `pnpm typecheck` ✅ (5 projects)
+- `pnpm test` ✅ — 39 (26 `@kpu/core` + 13 `@kpu/web`: 3 a11y + 5 setup-gate + **5 new `public-storage-url`**)
+- `pnpm lint` ✅ (Biome, 112 files — new test file reformatted to Biome's single-line `expect`)
+- `pnpm build` ✅ — bundles preserved: `/setup` 116 kB, `/b/[id]/c/[cardId]` 161 kB, `/b/[id]` 196 kB, `/sign-in` 116 kB, `/legal/privacy` 116 kB
+- **Not run**: the live `clone → install-kaban.sh → curl /setup` loop — no Docker daemon in the harness. Operator (user) has a Windows + Git Bash + Docker Engine host and was given the exact fresh-clone test command sequence this session; result still owed.
+
+### ADRs added
+
+- `docs/DECISIONS/0024-server-storage-urls-must-use-public-origin.md`
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **Operator live Docker test** — user is running `git clone -b claude/kaban-plus-ultra-dev-QkBJ6 → KABAN_HOST=localhost bash scripts/install-kaban.sh → curl /setup` on their host. Triage whatever they report; this branch's storage fix should also be exercised (upload an avatar in `/setup`, confirm it renders, not a `kong:8000` 4xx).
+2. ~~`pnpm` verification~~ — done this session (typecheck/test(39)/lint/build all green, bundles preserved).
+3. Privacy/STORE_LISTING/RELEASE_NOTES sweep — **parked by the user** (kabanplusultra.app bought but no mailboxes yet; no repo-wide rename this session).
+
+### Blockers / open questions
+
+- **No Docker daemon / no browser in the harness** — live install + Lighthouse still can't run here; `deploy-smoke.yml` is the CI stand-in. (Note: the npm registry *was* reachable this session, so the full `pnpm` suite ran green — that earlier "no network" blocker did not apply this run.)
+- **kabanplusultra.app has no mailboxes** — privacy sweep parked until `support@`/`security@`/`privacy@` (or a shared address) exist; repo-wide `kaban.saelik.com → kabanplusultra.app` rename is a separate, larger task the user explicitly deferred.
+- SUPABASE_SERVICE_ROLE_KEY operator-only; SMTP / Google OAuth unprovided; no native iOS/Android folders; Tailwind v4 beta pinned (all unchanged).
+
+---
+
 ## 2026-05-15 — Landed all eight ADR-0022 local-Docker deployment fixes in one commit
 
 - **Agent / model**: Claude (Opus 4.7)

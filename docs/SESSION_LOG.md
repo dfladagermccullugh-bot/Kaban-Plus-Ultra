@@ -71,39 +71,44 @@ Installer brought the full bundled stack up healthy and printed the `/setup?t=�
 
 while an identical raw fetch was 200. Difference: **supabase-js always sends `Accept-Profile: public`**; PostgREST 406s a profile not in its exposed list, and `docker/.env.example` was **missing `PGRST_DB_SCHEMAS`** (the pinned upstream compose references it with no default → `db-schemas=''`). The Compose `"PGRST_DB_SCHEMAS" … defaulting to a blank string` warning had been visible the whole time. Appending it to the live `.env` + recreating `rest` → `/setup` **200**, spy → `HEAD … 200 OK`. Cause + fix proven on the operator's stack.
 
+**Trial continued (clean-slate verification + a deeper finding).** Committed the real fix (`687f9da`: `.env.example` + installer backfill, diagnostics reverted), then did a true clean-slate run on the operator host: `down -v`, fresh `git clone -b <branch>`, `KABAN_HOST=localhost bash scripts/install-kaban.sh` with **zero manual steps** → installer-generated `.env` carried `PGRST_DB_SCHEMAS`, `/setup → 200`, real claim form. Claimed the workspace **with an avatar**: `profiles.avatar_url` persisted as `http://localhost/storage/v1/object/public/avatars/<uid>/avatar.png` — **ADR-0024's code is correct** (public origin, not `kong:8000`). But the success page's magic link was `http://kong/auth/v1/verify?…` (browser NXDOMAIN), and chasing *where* it should point uncovered the real foundational gap: **Caddy never reverse-proxies Supabase paths to kong** — `/auth/v1`, `/rest/v1`, `/storage/v1`, `/project` all 307/308 off Next at `http://localhost`, so every browser-side Supabase access (client auth, realtime, the avatar `<img>`, the magic-link verify, the advertised Studio link) is broken on self-host. Server-side is fine (uses `SUPABASE_INTERNAL_URL`). This is an architecture change with security choices; **deferred to a dedicated session per the user** and written up as **ADR 0026** with a full recommended plan.
+
 ### Changed
 
 - `docker/.env.example` — added `PGRST_DB_SCHEMAS=public,storage,graphql_public` (the fix) plus the four `MAILER_URLPATHS_*=/auth/v1/verify` and `LOGFLARE_API_KEY` (the other bare-`${VAR}` refs the same Compose run warned about).
 - `scripts/install-kaban.sh` — the "existing `.env`" branch now backfills any `.env.example` key absent from the live `.env` (example default value; existing lines incl. secrets never touched). Pure POSIX sh, MSYS-safe. Fixes upgrade path for already-broken deployments.
 - `apps/web/app/setup/setup-gate.server.ts` — kept minimal permanent observability (`console.error` the denial reason + caught error); all heavy trial instrumentation reverted.
-- `docs/DECISIONS/0025-pgrst-db-schemas-must-be-set-for-self-host.md` — new ADR.
-- `docs/ROADMAP.md` — new checked Phase 7 row.
+- `docs/DECISIONS/0025-pgrst-db-schemas-must-be-set-for-self-host.md` — new ADR (the `/setup` fix).
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md` — new ADR (the Caddy↔kong gap + magic-link; **implementation deferred to next session**, full plan inside).
+- `docs/ROADMAP.md` — Phase 7: PGRST/storage rows checked; new **unchecked** Caddy↔kong row.
 
 ### Verified
 
-- Live stack: `/setup → HTTP 200`, `[setup-gate][spy] HEAD … -> 200 OK cr=*/0` after the env fix (commands run on operator host).
-- `pnpm typecheck` ✅ · `pnpm test` ✅ (26 core + 13 web) · `pnpm lint` ✅ (112 files) · `pnpm build` ✅ (`/setup` 116 kB, bundles preserved).
-- `sh -n` + `bash -n` on `install-kaban.sh` ✅.
-- Owed: a final clean-slate `rm -rf clone → fresh install` on the operator host to prove `.env.example` produces a working stack with zero manual steps (incl. the avatar storage path from ADR 0024, never reached this session because the gate 404'd first).
+- Clean-slate operator run (fresh clone of `687f9da`, `down -v`, zero manual steps): installer-generated `.env` has `PGRST_DB_SCHEMAS`; `/setup → 200`; claim form renders; no `[setup-gate]` deny.
+- ADR-0024 confirmed: avatar persisted as `http://localhost/storage/v1/object/public/avatars/<uid>/avatar.png` (public origin). *Code correct; the avatar `<img>` won't actually render until the ADR-0026 Caddy routing lands — `http://localhost/storage/...` currently 307s.*
+- `pnpm typecheck` ✅ · `pnpm test` ✅ (26 core + 13 web) · `pnpm lint` ✅ (112 files) · `pnpm build` ✅ (`/setup` 116 kB, bundles preserved). `sh -n`/`bash -n` on `install-kaban.sh` ✅. Git clean, HEAD `687f9da` pushed.
 
 ### ADRs added
 
 - `docs/DECISIONS/0025-pgrst-db-schemas-must-be-set-for-self-host.md`
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md`
 
 ### Delegations
 
 None.
 
-### Next up
+### Next up (handoff — see ADR 0026 for the full plan)
 
-1. Operator clean-slate re-install from this branch → expect `/setup` 200 with no manual `.env` edit; then claim the workspace **with an avatar upload** to finally exercise the ADR-0024 storage-URL fix.
-2. Fold trial commits (`5e677f0`/`12e72dc`/`a6e42ce` diagnostics → now reverted) — history is fine as-is; no squash needed unless requested.
-3. Privacy/STORE_LISTING sweep still parked (no mailboxes; no rename).
+1. **Implement ADR 0026**: Caddyfile routes `/auth/v1 /rest/v1 /storage/v1 /realtime/v1 /functions/v1 (+Studio decision)` → `kong:8000`, keep `NEXT_PUBLIC_SUPABASE_URL=http://localhost`; generalize `toPublicStorageUrl`→`toPublicUrl` and rewrite the first-run `action_link` origin in `app/setup/actions.ts`. Verify on the live stack (avatar `<img>` 200, magic link signs in, browser auth round-trips). Add a browser-path probe to `deploy-smoke.yml`.
+2. Then re-run the full clean-slate operator trial end-to-end (claim w/ avatar → sign in via magic link → board loads with avatar visible).
+3. Privacy/STORE_LISTING sweep still parked (no mailboxes; no repo rename).
 
 ### Blockers / open questions
 
-- Harness has no Docker/daemon — every Docker step is operator-driven; `deploy-smoke.yml` is the CI proxy and would now catch this class on a real runner (it just had never run against one).
-- `LOGFLARE_API_KEY` set to upstream's literal placeholder; analytics ran healthy with it blank, so non-critical — flagged in ADR 0025 in case a future PIN bump validates it.
+- **Headline open issue → ADR 0026**: self-host browser↔Supabase routing is unwired (Caddy only proxies `web:3000`). Self-host is usable only through `/setup` account creation; first sign-in + all client-side Supabase + Studio are broken until the Caddy routes land. ADR 0024/0025 are correct prerequisites this sits on, not regressions.
+- Git history carries 3 reverted trial-diagnostic commits (`5e677f0`/`12e72dc`/`a6e42ce`); `687f9da`'s tree is clean. Left as-is (no force-push); squash only if explicitly requested.
+- Harness has no Docker/daemon — every Docker step is operator-driven; `deploy-smoke.yml` only probes `/setup` (would NOT have caught the Caddy gap — ADR 0026 step 4 adds a browser-path assertion).
+- `LOGFLARE_API_KEY` set to upstream's literal placeholder; analytics ran healthy with it blank — non-critical, flagged in ADR 0025.
 
 ---
 

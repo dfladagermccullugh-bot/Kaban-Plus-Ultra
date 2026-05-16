@@ -84,6 +84,25 @@ jobs:
             exit 1
           }
 
+      - name: Assert auth-callback redirects to the public origin (not 0.0.0.0)
+        run: |
+          set -euo pipefail
+          # Next standalone's request.url is the internal bind; without the
+          # X-Forwarded-* fix the callback 302s the browser to
+          # http://0.0.0.0:3000/... (unreachable). No ?code => deterministic
+          # 302 to /sign-in?error=missing_code.
+          loc="$(curl -s -o /dev/null -w '%{redirect_url}' "http://localhost/auth/callback")"
+          echo "Location: $loc"
+          case "$loc" in
+            http://localhost/sign-in*) echo "ok: public-origin redirect" ;;
+            *0.0.0.0* | *:3000* )
+              echo "::error::callback redirected to the internal bind ($loc) — X-Forwarded-* not honored"
+              exit 1 ;;
+            *)
+              echo "::error::unexpected callback redirect target: $loc"
+              exit 1 ;;
+          esac
+
       - name: Dump diagnostics on failure
         if: failure()
         run: |

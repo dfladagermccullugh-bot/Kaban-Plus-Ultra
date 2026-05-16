@@ -127,6 +127,29 @@ a Windows + Git Bash + Docker host (no Docker in the harness):
   origin-swap and a regression test pins the no-port host. `redirect_to`
   was already correct (it comes from our `getSiteUrl()` param, not
   GoTrue). This is exactly the class the operator loop exists to catch.
+- **Second bug, same loop:** the salvaged (hand-host-fixed) link, though
+  token-expired, exposed that the auth callback redirected to
+  `http://0.0.0.0:3000/sign-in`. `app/auth/callback/route.ts` (and
+  `app/sign-out/route.ts`) built every redirect with `new URL(p,
+  request.url)`. Next's standalone server reports `request.url` as its
+  internal bind (`HOSTNAME=0.0.0.0`, `PORT=3000`), so behind Caddy the
+  browser was sent to an unreachable host — and a *successful* sign-in
+  (the `next` redirect) would have hit it too, so this also blocked the
+  happy path. Added `lib/request-origin.ts:requestPublicOrigin()` which
+  reads the `X-Forwarded-Host` / `X-Forwarded-Proto` headers Caddy sets
+  by default (fallback: `Host`, then the request origin); both routes now
+  build redirects from it. New `tests/request-origin.test.ts` pins the
+  `0.0.0.0:3000` case; `deploy-smoke.yml` asserts the callback's 302
+  `Location` host. Middleware uses `request.nextUrl.clone()` (a different,
+  proxy-correct mechanism) and was left unchanged.
+
+### Decision (addendum)
+
+5. **Absolute redirects in route handlers must use the forwarded host,
+   not `request.url`.** `requestPublicOrigin(request)` is the single
+   helper; applied to the auth callback and sign-out. This is the same
+   "browser-facing URL must be the public origin" principle as §3, at the
+   redirect layer instead of the link-construction layer.
 
 ## Consequences
 

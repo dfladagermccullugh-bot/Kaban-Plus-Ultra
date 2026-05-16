@@ -4,6 +4,52 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-16 — ADR 0026: Caddy now reverse-proxies the Supabase API paths to Kong
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/caddy-proxy-supabase-kong-y51gu` (harness-assigned; HEAD was `01afdaa`, the PR #33 merge of `…-QkBJ6` — correctly stacked on the ADR-0025 `PGRST_DB_SCHEMAS` fix, no rebase needed)
+- **Phase**: Phase 7 — bridge the browser→Supabase path so a bundled self-host can complete claim + magic-link sign-in
+
+### Goal
+
+Implement ADR 0026: make the browser's supabase-js calls and the first-run magic link actually resolve on a bundled self-host (they 404'd against Next because nothing proxied the public origin to Kong).
+
+### Changed
+
+- `docker/Caddyfile` — restructured into two `handle` blocks: a `@supabase` matcher (`/auth/v1/*` `/rest/v1/*` `/storage/v1/*` `/realtime/v1/*` `/functions/v1/*`) reverse-proxies to `kong:8000` (URI forwarded untouched — Kong owns `strip_path`; WS upgrades pass through); the catch-all serves `web:3000` (keeps the `_next/static` immutable-cache header). HSTS/nosniff `header` moved to site level so it still covers both. Dead unused `@hostHealth` matcher removed. Studio's Kong `/` catch-all **deliberately not proxied** (admin UI off non-localhost hosts).
+- `apps/web/lib/env.ts` — `toPublicStorageUrl` → `toPublicUrl` (logic byte-for-byte identical; JSDoc generalized to cover `generateLink`).
+- `apps/web/app/(app)/b/[id]/actions.ts`, `apps/web/app/setup/actions.ts` — updated the 2 call sites; **also** wrapped `linkData.properties.action_link` (the magic link GoTrue builds off the internal `kong:8000` origin) in `toPublicUrl` so the operator can click it.
+- `apps/web/tests/public-storage-url.test.ts` — renamed to `toPublicUrl`; added a 6th case asserting an `/auth/v1/verify` magic-link is rewritten (file name kept; it's the per-push guard for this class).
+- `.github/workflows/deploy-smoke.yml` — new step after the `/setup` 200 probe: browser-equivalent request (sends `ANON_KEY` from `docker/.env`, as supabase-js does) to `http://localhost/auth/v1/health`, asserts the body names GoTrue → proves Caddy→Kong→GoTrue.
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md` — new ADR (accepted/implemented).
+- `docs/ROADMAP.md` — new checked Phase 7 row.
+
+### Verified
+
+- Prefixes cross-checked against the pinned upstream `kong.yml` fetched at `docker/supabase/PIN` = `v1.24.09` (`supabase/supabase@v1.24.09/docker/volumes/api/kong.yml`): `auth-v1` `/auth/v1/`, `rest-v1` `/rest/v1/`, `storage-v1` `/storage/v1/`, `realtime-v1` `/realtime/v1/`, `functions-v1` `/functions/v1/`; `dashboard` is a `/` catch-all (basic-auth) — hence not proxied.
+- `pnpm install --frozen-lockfile` ✅ · `pnpm typecheck` ✅ (5 projects) · `pnpm test` ✅ — 40 (26 `@kpu/core` + 14 `@kpu/web`: 3 a11y + 5 setup-gate + **6** `public-storage-url`) · `pnpm lint` ✅ (Biome, 112 files) · `pnpm build` ✅ — bundles preserved (`/setup` 116 kB, `/b/[id]` 197 kB, `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB, `/legal/privacy` 116 kB).
+- **Not run**: `caddy validate` (no caddy binary in harness) and the live `clone → install → claim-with-avatar → magic-link sign-in` loop (no Docker daemon). `deploy-smoke.yml`'s new assertion is the CI proxy on a real runner.
+
+### ADRs added
+
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md`
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **Operator live Docker run** — `git clone -b claude/caddy-proxy-supabase-kong-y51gu` → `KABAN_HOST=localhost bash scripts/install-kaban.sh` → open `/setup?t=…`, claim **with an avatar upload**, then click the surfaced magic link and confirm it signs in (exercises ADR 0024 storage-URL + ADR 0026 Caddy proxy + magic-link rewrite end-to-end). Triage whatever breaks.
+2. Privacy/STORE_LISTING sweep still parked (no mailboxes; no repo-wide domain rename) — explicitly out of scope this session.
+
+### Blockers / open questions
+
+- No Docker daemon / no browser / no caddy binary in the harness — every live step is operator-driven; `deploy-smoke.yml` is the standing CI proxy and now also guards the browser path.
+- Bumping `docker/supabase/PIN` must re-verify the five Caddy prefixes against the new tag's `kong.yml` (stable for years, but cheap to check).
+
+---
+
 ## 2026-05-15 — Live Docker trial: root-caused & fixed the `/setup` 404 (missing `PGRST_DB_SCHEMAS`)
 
 - **Agent / model**: Claude (Opus 4.7)

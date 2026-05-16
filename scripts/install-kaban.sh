@@ -222,7 +222,27 @@ PY
 
   log "  POSTGRES_PASSWORD / JWT_SECRET / DASHBOARD_PASSWORD / SETUP_TOKEN generated. Back up $ENV_FILE."
 else
-  log "$ENV_FILE already exists — keeping it as-is."
+  log "$ENV_FILE already exists — keeping secrets, backfilling any new keys …"
+  # Newer versions add required upstream vars (e.g. PGRST_DB_SCHEMAS — its
+  # absence 406-breaks every supabase-js call). Append keys that exist in
+  # .env.example but not in the live .env, using the example's default
+  # value. Existing lines (incl. all secrets) are never touched.
+  env_backfilled=0
+  while IFS= read -r ex_line; do
+    case "$ex_line" in
+      ''|\#*) continue ;;
+    esac
+    ex_key=${ex_line%%=*}
+    case "$ex_key" in
+      ''|*[!A-Za-z0-9_]*) continue ;;
+    esac
+    if ! grep -q "^${ex_key}=" "$ENV_FILE"; then
+      printf '%s\n' "$ex_line" >> "$ENV_FILE"
+      log "  + backfilled $ex_key from .env.example"
+      env_backfilled=1
+    fi
+  done < "$ENV_EXAMPLE"
+  [ "$env_backfilled" -eq 0 ] && log "  (.env already has every .env.example key)"
 fi
 
 # ---------- 5. supabase fetch ----------

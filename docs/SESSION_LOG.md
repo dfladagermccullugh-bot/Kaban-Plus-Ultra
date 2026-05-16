@@ -4,6 +4,60 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
+## 2026-05-15 — Live Docker trial: root-caused & fixed the `/setup` 404 (missing `PGRST_DB_SCHEMAS`)
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/kaban-plus-ultra-dev-QkBJ6`
+- **Phase**: Phase 7 — live local-Docker trial (operator on Windows + Git Bash + Docker Engine; harness has no Docker)
+
+### Goal
+
+Run the real `clone → install-kaban.sh → /setup` loop on the operator's host and fix whatever breaks.
+
+### What happened
+
+Installer brought the full bundled stack up healthy and printed the `/setup?t=…` URL, but `/setup` returned **404 for every token**. A long instrumented hunt (token compared end-to-end, route confirmed built at the monorepo standalone path, PID-1 server env confirmed, raw in-container fetch → 200) kept contradicting a code bug. Three of my own probes produced false signals (wrong standalone path; `require.resolve` can't see webpack-bundled deps) — noted so the next session doesn't repeat them. Pushed temporary diagnostics to the running image (gate-denial logging → deep error shape → same-runtime raw fetch → a `globalThis.fetch` spy). The spy was decisive:
+
+`[setup-gate][spy] HEAD http://kong:8000/rest/v1/profiles?select=id -> 406 Not Acceptable`
+
+while an identical raw fetch was 200. Difference: **supabase-js always sends `Accept-Profile: public`**; PostgREST 406s a profile not in its exposed list, and `docker/.env.example` was **missing `PGRST_DB_SCHEMAS`** (the pinned upstream compose references it with no default → `db-schemas=''`). The Compose `"PGRST_DB_SCHEMAS" … defaulting to a blank string` warning had been visible the whole time. Appending it to the live `.env` + recreating `rest` → `/setup` **200**, spy → `HEAD … 200 OK`. Cause + fix proven on the operator's stack.
+
+### Changed
+
+- `docker/.env.example` — added `PGRST_DB_SCHEMAS=public,storage,graphql_public` (the fix) plus the four `MAILER_URLPATHS_*=/auth/v1/verify` and `LOGFLARE_API_KEY` (the other bare-`${VAR}` refs the same Compose run warned about).
+- `scripts/install-kaban.sh` — the "existing `.env`" branch now backfills any `.env.example` key absent from the live `.env` (example default value; existing lines incl. secrets never touched). Pure POSIX sh, MSYS-safe. Fixes upgrade path for already-broken deployments.
+- `apps/web/app/setup/setup-gate.server.ts` — kept minimal permanent observability (`console.error` the denial reason + caught error); all heavy trial instrumentation reverted.
+- `docs/DECISIONS/0025-pgrst-db-schemas-must-be-set-for-self-host.md` — new ADR.
+- `docs/ROADMAP.md` — new checked Phase 7 row.
+
+### Verified
+
+- Live stack: `/setup → HTTP 200`, `[setup-gate][spy] HEAD … -> 200 OK cr=*/0` after the env fix (commands run on operator host).
+- `pnpm typecheck` ✅ · `pnpm test` ✅ (26 core + 13 web) · `pnpm lint` ✅ (112 files) · `pnpm build` ✅ (`/setup` 116 kB, bundles preserved).
+- `sh -n` + `bash -n` on `install-kaban.sh` ✅.
+- Owed: a final clean-slate `rm -rf clone → fresh install` on the operator host to prove `.env.example` produces a working stack with zero manual steps (incl. the avatar storage path from ADR 0024, never reached this session because the gate 404'd first).
+
+### ADRs added
+
+- `docs/DECISIONS/0025-pgrst-db-schemas-must-be-set-for-self-host.md`
+
+### Delegations
+
+None.
+
+### Next up
+
+1. Operator clean-slate re-install from this branch → expect `/setup` 200 with no manual `.env` edit; then claim the workspace **with an avatar upload** to finally exercise the ADR-0024 storage-URL fix.
+2. Fold trial commits (`5e677f0`/`12e72dc`/`a6e42ce` diagnostics → now reverted) — history is fine as-is; no squash needed unless requested.
+3. Privacy/STORE_LISTING sweep still parked (no mailboxes; no rename).
+
+### Blockers / open questions
+
+- Harness has no Docker/daemon — every Docker step is operator-driven; `deploy-smoke.yml` is the CI proxy and would now catch this class on a real runner (it just had never run against one).
+- `LOGFLARE_API_KEY` set to upstream's literal placeholder; analytics ran healthy with it blank, so non-critical — flagged in ADR 0025 in case a future PIN bump validates it.
+
+---
+
 ## 2026-05-15 — ADR-0022 re-audit: fixed two latent storage-URL in-container-localhost bugs the fix unmasked
 
 - **Agent / model**: Claude (Opus 4.7)

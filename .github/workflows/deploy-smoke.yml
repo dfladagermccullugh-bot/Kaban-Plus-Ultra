@@ -62,6 +62,47 @@ jobs:
           echo "Final status: $code"
           test "$code" = "200"
 
+      - name: Assert browser Supabase paths route to Kong (not Next)
+        run: |
+          set -euo pipefail
+          # supabase-js and the first-run magic link hit these on the public
+          # origin. Without the Caddyfile reverse-proxy routes they 404
+          # against the Next app instead of reaching Kong → GoTrue. Replicate
+          # a browser request (Kong's key-auth requires the apikey supabase-js
+          # always sends); GoTrue /health returns 200 JSON naming itself.
+          key="$(grep '^ANON_KEY=' docker/.env | cut -d= -f2-)"
+          if [ -z "$key" ]; then
+            echo "::error::ANON_KEY missing from docker/.env"
+            exit 1
+          fi
+          url="http://localhost/auth/v1/health"
+          echo "Probing $url"
+          body="$(curl -fsS -H "apikey: $key" "$url")"
+          echo "Body: $body"
+          echo "$body" | grep -q GoTrue || {
+            echo "::error::/auth/v1/* did not reach Kong → GoTrue (Caddy proxy route missing?)"
+            exit 1
+          }
+
+      - name: Assert auth-callback redirects to the public origin (not 0.0.0.0)
+        run: |
+          set -euo pipefail
+          # Next standalone's request.url is the internal bind; without the
+          # X-Forwarded-* fix the callback 302s the browser to
+          # http://0.0.0.0:3000/... (unreachable). No ?code => deterministic
+          # 302 to /sign-in?error=missing_code.
+          loc="$(curl -s -o /dev/null -w '%{redirect_url}' "http://localhost/auth/callback")"
+          echo "Location: $loc"
+          case "$loc" in
+            http://localhost/sign-in*) echo "ok: public-origin redirect" ;;
+            *0.0.0.0* | *:3000* )
+              echo "::error::callback redirected to the internal bind ($loc) — X-Forwarded-* not honored"
+              exit 1 ;;
+            *)
+              echo "::error::unexpected callback redirect target: $loc"
+              exit 1 ;;
+          esac
+
       - name: Dump diagnostics on failure
         if: failure()
         run: |

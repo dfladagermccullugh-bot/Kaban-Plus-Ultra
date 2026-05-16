@@ -4,7 +4,56 @@ Append-only. Newest entries on top. Use the template in `SESSION_PROTOCOL.md`.
 
 ---
 
-## 2026-05-15 — Live Docker trial: fixed `/setup` 404 (PGRST_DB_SCHEMAS) + confirmed ADR-0024; found foundational Caddy↔kong gap (→ ADR 0026, next session)
+## 2026-05-16 — ADR 0026: Caddy now reverse-proxies the Supabase API paths to Kong
+
+- **Agent / model**: Claude (Opus 4.7)
+- **Branch**: `claude/caddy-proxy-supabase-kong-y51gu` (harness-assigned; HEAD was `01afdaa`, the PR #33 merge of `…-QkBJ6` — correctly stacked on the ADR-0025 `PGRST_DB_SCHEMAS` fix, no rebase needed)
+- **Phase**: Phase 7 — bridge the browser→Supabase path so a bundled self-host can complete claim + magic-link sign-in
+
+### Goal
+
+Implement ADR 0026: make the browser's supabase-js calls and the first-run magic link actually resolve on a bundled self-host (they 404'd against Next because nothing proxied the public origin to Kong).
+
+### Changed
+
+- `docker/Caddyfile` — restructured into two `handle` blocks: a `@supabase` matcher (`/auth/v1/*` `/rest/v1/*` `/storage/v1/*` `/realtime/v1/*` `/functions/v1/*`) reverse-proxies to `kong:8000` (URI forwarded untouched — Kong owns `strip_path`; WS upgrades pass through); the catch-all serves `web:3000` (keeps the `_next/static` immutable-cache header). HSTS/nosniff `header` moved to site level so it still covers both. Dead unused `@hostHealth` matcher removed. Studio's Kong `/` catch-all **deliberately not proxied** (admin UI off non-localhost hosts).
+- `apps/web/lib/env.ts` — `toPublicStorageUrl` → `toPublicUrl` (logic byte-for-byte identical; JSDoc generalized to cover `generateLink`).
+- `apps/web/app/(app)/b/[id]/actions.ts`, `apps/web/app/setup/actions.ts` — updated the 2 call sites; **also** wrapped `linkData.properties.action_link` (the magic link GoTrue builds off the internal `kong:8000` origin) in `toPublicUrl` so the operator can click it.
+- `apps/web/tests/public-storage-url.test.ts` — renamed to `toPublicUrl`; added a 6th case asserting an `/auth/v1/verify` magic-link is rewritten (file name kept; it's the per-push guard for this class).
+- `.github/workflows/deploy-smoke.yml` — new step after the `/setup` 200 probe: browser-equivalent request (sends `ANON_KEY` from `docker/.env`, as supabase-js does) to `http://localhost/auth/v1/health`, asserts the body names GoTrue → proves Caddy→Kong→GoTrue.
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md` — new ADR (accepted/implemented).
+- `docs/ROADMAP.md` — new checked Phase 7 row.
+
+### Verified
+
+- Prefixes cross-checked against the pinned upstream `kong.yml` fetched at `docker/supabase/PIN` = `v1.24.09` (`supabase/supabase@v1.24.09/docker/volumes/api/kong.yml`): `auth-v1` `/auth/v1/`, `rest-v1` `/rest/v1/`, `storage-v1` `/storage/v1/`, `realtime-v1` `/realtime/v1/`, `functions-v1` `/functions/v1/`; `dashboard` is a `/` catch-all (basic-auth) — hence not proxied.
+- `pnpm typecheck` ✅ (5 projects) · `pnpm test` ✅ — 41 (26 `@kpu/core` + 15 `@kpu/web`: 3 a11y + 5 setup-gate + **7** `public-storage-url`) · `pnpm lint` ✅ (Biome, 112 files) · `pnpm build` ✅ — bundles preserved (`/setup` 116 kB, `/b/[id]` 197 kB, `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB).
+- **Live trial DID run this session** (operator, Windows + Git Bash + Docker; clean teardown of the prior stack/folder/image first). CLI routing probes all green on the real host: `/auth/v1/health` → 200 GoTrue, `/rest/v1/` → 200, `/setup` → 200, `/` → Kaban app (Studio not leaked) — **ADR-0026 part (1) proven live**. Bug found: surfaced magic link was `http://kong/auth/v1/verify…` (no port). `API_EXTERNAL_URL`/`GOTRUE_SITE_URL` were correctly `http://localhost`, so the host came from GoTrue stamping the request host (internal admin hop → Kong → `http://kong`), **not** the client base / config. The original prefix-match `toPublicUrl` (keyed on `http://kong:8000`) no-op'd it. **Fixed**: `toPublicUrl` reworked to origin-swap (any origin → public Supabase origin, path/query preserved verbatim); new regression test for the no-port host; ADR 0026 §3 + Live-verification amendment. `redirect_to` was already correct (our `getSiteUrl()` param).
+- **Second live bug (same loop)**: the salvaged link (token expired, but it got far enough) showed the auth callback redirecting to `http://0.0.0.0:3000/sign-in`. `app/auth/callback/route.ts` + `app/sign-out/route.ts` built redirects from `new URL(p, request.url)`; Next standalone's `request.url` is the internal bind (`HOSTNAME=0.0.0.0:3000`), so behind Caddy the browser was sent to an unreachable host — a *successful* sign-in would have hit it too. **Fixed**: new `lib/request-origin.ts:requestPublicOrigin()` reads Caddy's `X-Forwarded-Host`/`-Proto` (fallback `Host`, then request origin); both routes use it. New `tests/request-origin.test.ts` (4 cases) pins the `0.0.0.0:3000` regression; `deploy-smoke.yml` now also asserts the callback 302 `Location` host. Middleware (`nextUrl.clone()`) is proxy-correct and untouched.
+- `pnpm typecheck` ✅ · `pnpm test` ✅ — 45 (26 core + 19 web: 3 a11y + 5 setup-gate + 7 `public-storage-url` + **4** `request-origin`) · `pnpm lint` ✅ · `pnpm build` ✅ (bundles preserved).
+- **Not run**: `caddy validate` (no caddy binary). Still owed: the operator's final clean re-claim on the rebuilt image confirming the auto-corrected inline link signs in to `/boards` + avatar renders (ADR 0024).
+
+### ADRs added
+
+- `docs/DECISIONS/0026-caddy-must-proxy-supabase-paths-to-kong.md`
+
+### Delegations
+
+None.
+
+### Next up
+
+1. **Operator final clean re-claim** — pull the origin-swap fix, rebuild + recreate the `web` container, wipe the DB so `/setup` re-opens, then claim-with-avatar again and confirm the inline magic link is now born `http://localhost/auth/v1/verify…`, signs in to `/boards`, and the avatar renders (ADR 0024). The live routing (ADR-0026 part 1) is already proven; this closes the magic-link + storage path.
+2. Privacy/STORE_LISTING sweep still parked (no mailboxes; no repo-wide domain rename) — explicitly out of scope this session.
+
+### Blockers / open questions
+
+- No Docker daemon / no browser / no caddy binary in the harness — every live step is operator-driven; `deploy-smoke.yml` is the standing CI proxy and now also guards the browser path.
+- Bumping `docker/supabase/PIN` must re-verify the five Caddy prefixes against the new tag's `kong.yml` (stable for years, but cheap to check).
+
+---
+
+## 2026-05-15 — Live Docker trial: root-caused & fixed the `/setup` 404 (missing `PGRST_DB_SCHEMAS`)
 
 - **Agent / model**: Claude (Opus 4.7)
 - **Branch**: `claude/kaban-plus-ultra-dev-QkBJ6`

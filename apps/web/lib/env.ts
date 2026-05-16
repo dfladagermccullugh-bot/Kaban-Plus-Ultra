@@ -43,22 +43,33 @@ export function getSiteUrl(): string {
 }
 
 /**
- * Rewrite a storage URL built by a server-side Supabase client to the public
- * origin the browser can actually reach.
+ * Rewrite a URL built by a server-side Supabase client to the public origin
+ * the browser can actually reach.
  *
- * `getPublicUrl()` / `createSignedUrl()` string-concatenate the *client's*
- * base origin. Server-side clients use `getServerSupabaseUrl()` —
- * `SUPABASE_INTERNAL_URL` (`http://kong:8000`) in a bundled deploy — so a URL
- * destined for an `<img src>` would point at an unreachable internal host.
- * The API hop should stay internal; only the URL handed to the browser needs
- * the public origin. No-op when `SUPABASE_INTERNAL_URL` is unset (hosted
- * Supabase / local dev) or the URL isn't on the internal origin. See
- * docs/DECISIONS/0024.
+ * In a bundled self-host the server talks to Supabase over the internal
+ * docker origin (`SUPABASE_INTERNAL_URL`, `http://kong:8000`). Two classes
+ * of server-built URL then leak an unreachable host to the browser:
+ *
+ *  - storage-js `getPublicUrl()` / `createSignedUrl()` string-concatenate
+ *    the *client* base origin → `http://kong:8000/storage/v1/…`;
+ *  - GoTrue's `admin/generate_link` stamps the **incoming request host**
+ *    into `action_link` — Kong renders that as `http://kong` (no port),
+ *    *not* the client base and *not* `API_EXTERNAL_URL`.
+ *
+ * So we can't prefix-match a single known internal string. Instead swap the
+ * URL's whole origin (whatever it is) for the public Supabase origin,
+ * preserving path + query + hash byte-for-byte. Caddy then proxies the
+ * Supabase paths back to Kong (see docs/DECISIONS/0026). No-op when
+ * `SUPABASE_INTERNAL_URL` is unset (hosted Supabase / local dev). See
+ * docs/DECISIONS/0024 + 0026.
  */
-export function toPublicStorageUrl(url: string): string {
-  const internal = process.env.SUPABASE_INTERNAL_URL;
-  if (!internal) return url;
-  const stripTrailingSlash = (s: string) => s.replace(/\/+$/, '');
-  const from = stripTrailingSlash(internal);
-  return url.startsWith(from) ? stripTrailingSlash(getSupabaseUrl()) + url.slice(from.length) : url;
+export function toPublicUrl(url: string): string {
+  if (!process.env.SUPABASE_INTERNAL_URL) return url;
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return url;
+  }
+  return new URL(getSupabaseUrl()).origin + url.slice(origin.length);
 }

@@ -10,18 +10,36 @@
 
 {$KABAN_SCHEME:https}://{$KABAN_HOST} {
 	encode zstd gzip
-	@hostHealth path /
-	reverse_proxy web:3000
 
-	# Long-cache the Next.js static asset chunks (immutable, hashed).
-	@nextStatic path /_next/static/*
-	header @nextStatic Cache-Control "public, max-age=31536000, immutable"
-
-	# HSTS + nosniff. CSP is set in middleware.ts.
+	# HSTS + nosniff. CSP is set in middleware.ts. Site-level so it applies
+	# to both the app and the proxied Supabase API responses below.
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options    "nosniff"
 		Referrer-Policy           "strict-origin-when-cross-origin"
 		-Server
+	}
+
+	# Supabase client traffic and the first-run magic link hit these paths
+	# on the *public* origin (NEXT_PUBLIC_SUPABASE_URL stays http(s)://<host>
+	# so the browser bundle is origin-relative). Kong owns its own routing
+	# and path-stripping, so we forward the URI untouched — no `strip_path`
+	# equivalent here. WebSockets (realtime) upgrade transparently through
+	# reverse_proxy. Prefixes verified against the pinned upstream
+	# docker/supabase/upstream/docker/volumes/api/kong.yml (v1.24.09).
+	# Deliberately NOT proxied: Kong's catch-all Studio "dashboard" route
+	# (`/`), so Studio is never exposed on a non-localhost host — reach it
+	# via an SSH tunnel to the Kong port instead. See docs/DECISIONS/0026.
+	@supabase path /auth/v1/* /rest/v1/* /storage/v1/* /realtime/v1/* /functions/v1/*
+	handle @supabase {
+		reverse_proxy kong:8000
+	}
+
+	handle {
+		# Long-cache the Next.js static asset chunks (immutable, hashed).
+		@nextStatic path /_next/static/*
+		header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+
+		reverse_proxy web:3000
 	}
 }

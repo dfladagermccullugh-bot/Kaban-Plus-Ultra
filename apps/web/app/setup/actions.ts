@@ -1,7 +1,7 @@
 'use server';
 
 import { isAccentColor } from '@/app/profile/accent-colors';
-import { getSiteUrl, toPublicStorageUrl } from '@/lib/env';
+import { getSiteUrl, toPublicUrl } from '@/lib/env';
 import { createAdmin } from '@/lib/supabase/admin';
 import { isWorkspaceEmpty } from './setup-gate.server';
 import { checkSetupToken } from './setup-state';
@@ -98,7 +98,7 @@ export async function claimWorkspace(formData: FormData): Promise<ClaimResult> {
     const { data: pub } = admin.storage.from('avatars').getPublicUrl(path);
     const { error: avatarErr } = await admin
       .from('profiles')
-      .update({ avatar_url: toPublicStorageUrl(pub.publicUrl) })
+      .update({ avatar_url: toPublicUrl(pub.publicUrl) })
       .eq('id', userId);
     if (avatarErr) return { ok: false, error: avatarErr.message };
   }
@@ -114,7 +114,11 @@ export async function claimWorkspace(formData: FormData): Promise<ClaimResult> {
     options: { redirectTo },
   });
   if (linkData?.properties?.action_link) {
-    magicLink = linkData.properties.action_link;
+    // GoTrue stamps the incoming request host into action_link — via the
+    // internal admin hop that surfaces as http://kong, unreachable from a
+    // browser. Swap it to the public origin; Caddy proxies /auth/v1/* back
+    // to Kong (ADR 0026). redirect_to is already public (getSiteUrl()).
+    magicLink = toPublicUrl(linkData.properties.action_link);
   }
 
   return { ok: true, email, magicLink };

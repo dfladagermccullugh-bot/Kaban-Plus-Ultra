@@ -15,7 +15,7 @@ export async function isWorkspaceEmpty(): Promise<boolean> {
 export async function setupGate(suppliedToken: string | undefined): Promise<SetupGate> {
   const tokenCheck = checkSetupToken(suppliedToken);
   if (!tokenCheck.ok) {
-    // A misconfigured self-host otherwise gets an undebuggable silent 404.
+    // Without this a misconfigured self-host gets an undebuggable silent 404.
     console.error(`[setup-gate] denied: token check = ${tokenCheck.reason}`);
     return tokenCheck;
   }

@@ -114,9 +114,10 @@ export async function claimWorkspace(formData: FormData): Promise<ClaimResult> {
     options: { redirectTo },
   });
   if (linkData?.properties?.action_link) {
-    // generateLink builds this off the admin client's internal origin
-    // (kong:8000 in a bundled deploy); rewrite to the public origin so the
-    // operator can actually click it. Caddy proxies /auth/v1/* back to Kong.
+    // GoTrue stamps the incoming request host into action_link — via the
+    // internal admin hop that surfaces as http://kong, unreachable from a
+    // browser. Swap it to the public origin; Caddy proxies /auth/v1/* back
+    // to Kong (ADR 0026). redirect_to is already public (getSiteUrl()).
     magicLink = toPublicUrl(linkData.properties.action_link);
   }
 

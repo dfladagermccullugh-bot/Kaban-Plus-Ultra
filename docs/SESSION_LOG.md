@@ -27,8 +27,9 @@ Implement ADR 0026: make the browser's supabase-js calls and the first-run magic
 ### Verified
 
 - Prefixes cross-checked against the pinned upstream `kong.yml` fetched at `docker/supabase/PIN` = `v1.24.09` (`supabase/supabase@v1.24.09/docker/volumes/api/kong.yml`): `auth-v1` `/auth/v1/`, `rest-v1` `/rest/v1/`, `storage-v1` `/storage/v1/`, `realtime-v1` `/realtime/v1/`, `functions-v1` `/functions/v1/`; `dashboard` is a `/` catch-all (basic-auth) — hence not proxied.
-- `pnpm install --frozen-lockfile` ✅ · `pnpm typecheck` ✅ (5 projects) · `pnpm test` ✅ — 40 (26 `@kpu/core` + 14 `@kpu/web`: 3 a11y + 5 setup-gate + **6** `public-storage-url`) · `pnpm lint` ✅ (Biome, 112 files) · `pnpm build` ✅ — bundles preserved (`/setup` 116 kB, `/b/[id]` 197 kB, `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB, `/legal/privacy` 116 kB).
-- **Not run**: `caddy validate` (no caddy binary in harness) and the live `clone → install → claim-with-avatar → magic-link sign-in` loop (no Docker daemon). `deploy-smoke.yml`'s new assertion is the CI proxy on a real runner.
+- `pnpm typecheck` ✅ (5 projects) · `pnpm test` ✅ — 41 (26 `@kpu/core` + 15 `@kpu/web`: 3 a11y + 5 setup-gate + **7** `public-storage-url`) · `pnpm lint` ✅ (Biome, 112 files) · `pnpm build` ✅ — bundles preserved (`/setup` 116 kB, `/b/[id]` 197 kB, `/b/[id]/c/[cardId]` 161 kB, `/sign-in` 116 kB).
+- **Live trial DID run this session** (operator, Windows + Git Bash + Docker; clean teardown of the prior stack/folder/image first). CLI routing probes all green on the real host: `/auth/v1/health` → 200 GoTrue, `/rest/v1/` → 200, `/setup` → 200, `/` → Kaban app (Studio not leaked) — **ADR-0026 part (1) proven live**. Bug found: surfaced magic link was `http://kong/auth/v1/verify…` (no port). `API_EXTERNAL_URL`/`GOTRUE_SITE_URL` were correctly `http://localhost`, so the host came from GoTrue stamping the request host (internal admin hop → Kong → `http://kong`), **not** the client base / config. The original prefix-match `toPublicUrl` (keyed on `http://kong:8000`) no-op'd it. **Fixed**: `toPublicUrl` reworked to origin-swap (any origin → public Supabase origin, path/query preserved verbatim); new regression test for the no-port host; ADR 0026 §3 + Live-verification amendment. `redirect_to` was already correct (our `getSiteUrl()` param).
+- **Not run**: `caddy validate` (no caddy binary). Still owed: the operator's final clean re-claim on the rebuilt image confirming the auto-corrected inline link signs in + avatar renders (ADR 0024).
 
 ### ADRs added
 
@@ -40,7 +41,7 @@ None.
 
 ### Next up
 
-1. **Operator live Docker run** — `git clone -b claude/caddy-proxy-supabase-kong-y51gu` → `KABAN_HOST=localhost bash scripts/install-kaban.sh` → open `/setup?t=…`, claim **with an avatar upload**, then click the surfaced magic link and confirm it signs in (exercises ADR 0024 storage-URL + ADR 0026 Caddy proxy + magic-link rewrite end-to-end). Triage whatever breaks.
+1. **Operator final clean re-claim** — pull the origin-swap fix, rebuild + recreate the `web` container, wipe the DB so `/setup` re-opens, then claim-with-avatar again and confirm the inline magic link is now born `http://localhost/auth/v1/verify…`, signs in to `/boards`, and the avatar renders (ADR 0024). The live routing (ADR-0026 part 1) is already proven; this closes the magic-link + storage path.
 2. Privacy/STORE_LISTING sweep still parked (no mailboxes; no repo-wide domain rename) — explicitly out of scope this session.
 
 ### Blockers / open questions

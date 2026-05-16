@@ -59,13 +59,19 @@ because no session had reached browser-side Supabase traffic (the gate
    explicit API prefixes; Studio stays reachable solely over the docker
    network (operator SSH-tunnels to the Kong port when they need it).
 
-3. **`toPublicStorageUrl` → `toPublicUrl`** (logic unchanged). The helper
-   already rewrote server-built storage URLs from the internal origin to
-   the public one (ADR 0024). `auth.admin.generateLink()` has the exact
-   same problem — it concatenates the admin client's internal origin, so
-   the first-run magic link pointed at `http://kong:8000/auth/v1/verify…`,
-   unreachable from the operator's browser. Same fix, broader name; now
-   also applied to `linkData.properties.action_link` in
+3. **`toPublicStorageUrl` → `toPublicUrl`, reworked to swap the origin.**
+   The helper already rewrote server-built storage URLs from the internal
+   origin to the public one (ADR 0024). The first-run magic link has the
+   same *symptom* but a different *cause* (see the Live verification
+   amendment): GoTrue's `admin/generate_link` stamps the **incoming
+   request host** into `action_link`, which the internal admin hop
+   surfaces as `http://kong` — no port, not the client base, not
+   `API_EXTERNAL_URL`. A literal prefix match on `SUPABASE_INTERNAL_URL`
+   (`http://kong:8000`) therefore could not catch it. `toPublicUrl` now
+   parses the URL's origin and swaps **whatever** it is for the public
+   Supabase origin, preserving path+query+hash byte-for-byte; still a
+   no-op when `SUPABASE_INTERNAL_URL` is unset. Applied to the storage
+   URLs (2 sites) and `linkData.properties.action_link` in
    `app/setup/actions.ts`. With (1) in place the rewritten
    `http://localhost/auth/v1/verify…` link resolves: Caddy → Kong →
    GoTrue.
@@ -94,6 +100,33 @@ because no session had reached browser-side Supabase traffic (the gate
   is necessary but not sufficient; (1) and (3) are a pair.
 - **Keep the helper named `toPublicStorageUrl`.** Rejected: it now also
   rewrites an auth action link; the storage-specific name would mislead.
+- **Spoof `Host`/`X-Forwarded-Host` on the admin client so GoTrue stamps
+  the public host.** Rejected: supabase-js gives no clean hook for it,
+  and forging forwarded headers is fragile and security-smelly.
+- **Fork upstream GoTrue/Kong config so links use `API_EXTERNAL_URL`.**
+  Rejected: ADR-0021 keeps the upstream compose stock; an app-layer
+  normalization (already the ADR-0024 pattern) is one file, no fork.
+
+## Live verification (amendment, 2026-05-16)
+
+Operator ran the full clean `clone → install → claim-with-avatar` loop on
+a Windows + Git Bash + Docker host (no Docker in the harness):
+
+- The CLI routing probes all passed: `/auth/v1/health` → 200 GoTrue,
+  `/rest/v1/` → 200, `/setup` → 200, `/` → the Kaban app (Studio not
+  leaked). **Part (1) of this ADR is proven on a real host.**
+- The surfaced magic link came back as
+  `http://kong/auth/v1/verify?…&redirect_to=http://localhost/auth/callback…`.
+  `API_EXTERNAL_URL` / `GOTRUE_SITE_URL` were both correctly
+  `http://localhost`, so the host did **not** come from config — the
+  pinned GoTrue builds the `admin/generate_link` URL from the request
+  host, which the internal `http://kong:8000` admin hop surfaces (via
+  Kong) as `http://kong`. The original prefix-match `toPublicUrl`
+  (keyed on `http://kong:8000`) silently no-op'd it and shipped an
+  unclickable link. Decision §3 was reworked from prefix-match to
+  origin-swap and a regression test pins the no-port host. `redirect_to`
+  was already correct (it comes from our `getSiteUrl()` param, not
+  GoTrue). This is exactly the class the operator loop exists to catch.
 
 ## Consequences
 
